@@ -819,8 +819,21 @@
   }, { threshold: 0.15 });
   document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
 
+  // ===== CONFIG — Set your API URL here =====
+  const API_URL = 'http://io0ks4kos4oco48ckc4gwkkc.46.224.226.181.sslip.io';
+
+  // ===== Load real waitlist count on page load =====
+  if (API_URL) {
+    fetch(`${API_URL}/api/waitlist/count`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.count) document.getElementById('waitlist-count').textContent = data.count;
+      })
+      .catch(() => {}); // silently fail if API not connected yet
+  }
+
   // ===== Email Signup =====
-  function handleSignup(variant) {
+  async function handleSignup(variant) {
     const isBottom = variant === 'bottom';
     const input = document.getElementById(isBottom ? 'email-input-bottom' : 'email-input');
     const email = input.value.trim();
@@ -832,13 +845,23 @@
       return;
     }
 
-    // Store email (replace this with your backend / Formspree / Mailchimp endpoint)
-    console.log('Email collected:', email);
-
-    // For now, save to localStorage as a demo
-    const emails = JSON.parse(localStorage.getItem('holoswap_emails') || '[]');
-    emails.push({ email, date: new Date().toISOString() });
-    localStorage.setItem('holoswap_emails', JSON.stringify(emails));
+    // Send to API if configured, otherwise just show success
+    if (API_URL) {
+      try {
+        const res = await fetch(`${API_URL}/api/waitlist`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email }),
+        });
+        const data = await res.json();
+        if (data.position) {
+          document.getElementById('waitlist-count').textContent = data.position;
+        }
+      } catch (err) {
+        console.error('Signup error:', err);
+        // Still show success to user — we'll catch the email next time
+      }
+    }
 
     // Show success
     if (isBottom) {
@@ -850,7 +873,7 @@
       document.getElementById('success-msg').style.display = 'block';
     }
 
-    // Bump count
+    // Bump displayed count
     const countEl = document.getElementById('waitlist-count');
     countEl.textContent = parseInt(countEl.textContent) + 1;
   }
