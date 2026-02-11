@@ -4,23 +4,20 @@ const auth = require('../middleware/auth');
 
 const router = Router();
 
-// GET /api/trades — get user's trades
+// GET /api/trades — get user's trades (as buyer or seller)
 router.get('/', auth, async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT t.*,
-        ua.email as user_a_email, ua.display_name as user_a_name,
-        ub.email as user_b_email, ub.display_name as user_b_name,
-        ca.card_name as card_a_name, ca.card_set as card_a_set, ca.image_url as card_a_image,
-        ca.condition as card_a_condition, ca.status as card_a_status,
-        cb.card_name as card_b_name, cb.card_set as card_b_set, cb.image_url as card_b_image,
-        cb.condition as card_b_condition, cb.status as card_b_status
+        seller.email as seller_email, seller.display_name as seller_name,
+        buyer.email as buyer_email, buyer.display_name as buyer_name,
+        c.card_name, c.card_set, c.card_number, c.rarity, c.condition,
+        c.image_url, c.status as card_status
        FROM trades t
-       JOIN users ua ON t.user_a_id = ua.id
-       JOIN users ub ON t.user_b_id = ub.id
-       JOIN cards ca ON t.card_a_id = ca.id
-       JOIN cards cb ON t.card_b_id = cb.id
-       WHERE t.user_a_id = $1 OR t.user_b_id = $1
+       JOIN users seller ON t.seller_id = seller.id
+       JOIN users buyer ON t.buyer_id = buyer.id
+       JOIN cards c ON t.card_id = c.id
+       WHERE t.seller_id = $1 OR t.buyer_id = $1
        ORDER BY t.created_at DESC`,
       [req.user.id]
     );
@@ -32,57 +29,38 @@ router.get('/', auth, async (req, res) => {
   }
 });
 
-// POST /api/trades/find-matches — find potential matches for current user
+// GET /api/trades/matches — find cards that match my want list
 router.get('/matches', auth, async (req, res) => {
   try {
-    // Find cards where:
-    // - Someone else has a card I want (their listed card matches my want list)
-    // - I have a card they want (my listed card matches their want list)
     const result = await pool.query(
       `SELECT
-        my_want.id as my_want_id,
-        my_want.card_name as i_want_card,
-        my_want.card_set as i_want_set,
-        my_want.min_condition as i_want_min_condition,
-        their_card.id as their_card_id,
-        their_card.card_name as they_have_card,
-        their_card.card_set as they_have_set,
-        their_card.condition as they_have_condition,
-        their_card.image_url as they_have_image,
-        their_card.user_id as other_user_id,
-        other_user.display_name as other_user_name,
-        other_user.city as other_user_city,
-        their_want.id as their_want_id,
-        their_want.card_name as they_want_card,
-        their_want.card_set as they_want_set,
-        my_card.id as my_card_id,
-        my_card.card_name as i_have_card,
-        my_card.card_set as i_have_set,
-        my_card.condition as i_have_condition,
-        my_card.image_url as i_have_image
-       FROM want_list my_want
-       -- Find their card that matches my want
-       JOIN cards their_card ON LOWER(their_card.card_name) = LOWER(my_want.card_name)
-         AND their_card.user_id != $1
-         AND their_card.status = 'listed'
-       JOIN users other_user ON their_card.user_id = other_user.id
-       -- Find their want that matches my card
-       JOIN want_list their_want ON their_want.user_id = their_card.user_id
-       JOIN cards my_card ON LOWER(my_card.card_name) = LOWER(their_want.card_name)
-         AND my_card.user_id = $1
-         AND my_card.status = 'listed'
-       WHERE my_want.user_id = $1
-       -- Exclude already traded or in-progress trades
+        w.id as want_id,
+        w.card_name as wanted_card,
+        w.card_set as wanted_set,
+        w.min_condition,
+        c.id as card_id,
+        c.card_name,
+        c.card_set,
+        c.card_number,
+        c.rarity,
+        c.condition,
+        c.image_url,
+        c.estimated_value,
+        c.user_id as seller_id,
+        u.display_name as seller_name,
+        u.city as seller_city
+       FROM want_list w
+       JOIN cards c ON LOWER(c.card_name) = LOWER(w.card_name)
+         AND c.user_id != $1
+         AND c.status = 'listed'
+       JOIN users u ON c.user_id = u.id
+       WHERE w.user_id = $1
        AND NOT EXISTS (
          SELECT 1 FROM trades
-         WHERE trades.status NOT IN ('cancelled', 'rejected')
-         AND (
-           (trades.card_a_id = my_card.id OR trades.card_b_id = my_card.id)
-           OR (trades.card_a_id = their_card.id OR trades.card_b_id = their_card.id)
-         )
+         WHERE trades.card_id = c.id
+         AND trades.status NOT IN ('cancelled', 'rejected')
        )
-       ORDER BY other_user.display_name, my_want.card_name
-       LIMIT 50`,
+       ORDER BY w.card_name, c.condition`,
       [req.user.id]
     );
 
@@ -93,46 +71,78 @@ router.get('/matches', auth, async (req, res) => {
   }
 });
 
-// POST /api/trades — propose a trade
+// GET /api/trades/selling — find people who want my listed cards
+router.get('/selling', auth, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT
+        c.id as card_id,
+        c.card_name,
+        c.card_set,
+        c.card_number,
+        c.rarity,
+        c.condition,
+        c.image_url,
+        c.estimated_value,
+        w.id as want_id,
+        w.user_id as buyer_id,
+        w.min_condition,
+        u.display_name as buyer_name,
+        u.city as buyer_city
+       FROM cards c
+       JOIN want_list w ON LOWER(w.card_name) = LOWER(c.card_name)
+         AND w.user_id != $1
+       JOIN users u ON w.user_id = u.id
+       WHERE c.user_id = $1
+       AND c.status = 'listed'
+       AND NOT EXISTS (
+         SELECT 1 FROM trades
+         WHERE trades.card_id = c.id
+         AND trades.status NOT IN ('cancelled', 'rejected')
+       )
+       ORDER BY c.card_name`,
+      [req.user.id]
+    );
+
+    res.json({ buyers: result.rows });
+  } catch (err) {
+    console.error('Find buyers error:', err);
+    res.status(500).json({ error: 'Something went wrong' });
+  }
+});
+
+// POST /api/trades — buyer requests a card
 router.post('/', auth, async (req, res) => {
   try {
-    const { my_card_id, their_card_id, other_user_id } = req.body;
+    const { card_id, seller_id } = req.body;
 
-    // Verify my card belongs to me and is listed
-    const myCard = await pool.query(
-      "SELECT * FROM cards WHERE id = $1 AND user_id = $2 AND status = 'listed'",
-      [my_card_id, req.user.id]
-    );
-    if (myCard.rows.length === 0) {
-      return res.status(400).json({ error: 'Your card is not available for trading' });
+    if (seller_id === req.user.id) {
+      return res.status(400).json({ error: "You can't buy your own card" });
     }
 
-    // Verify their card belongs to them and is listed
-    const theirCard = await pool.query(
+    // Verify card exists, is listed, belongs to seller
+    const card = await pool.query(
       "SELECT * FROM cards WHERE id = $1 AND user_id = $2 AND status = 'listed'",
-      [their_card_id, other_user_id]
+      [card_id, seller_id]
     );
-    if (theirCard.rows.length === 0) {
-      return res.status(400).json({ error: 'Their card is not available for trading' });
+    if (card.rows.length === 0) {
+      return res.status(400).json({ error: 'Card is not available' });
     }
 
-    // Check no existing active trade for these cards
+    // Check no existing active trade for this card
     const existing = await pool.query(
-      `SELECT id FROM trades
-       WHERE status NOT IN ('cancelled', 'rejected', 'complete')
-       AND (card_a_id = $1 OR card_b_id = $1 OR card_a_id = $2 OR card_b_id = $2)`,
-      [my_card_id, their_card_id]
+      `SELECT id FROM trades WHERE card_id = $1 AND status NOT IN ('cancelled', 'rejected')`,
+      [card_id]
     );
     if (existing.rows.length > 0) {
-      return res.status(400).json({ error: 'One of these cards is already in an active trade' });
+      return res.status(400).json({ error: 'This card already has an active trade' });
     }
 
-    // Create the trade
     const result = await pool.query(
-      `INSERT INTO trades (user_a_id, user_b_id, card_a_id, card_b_id, status, proposed_by)
-       VALUES ($1, $2, $3, $4, 'proposed', $1)
+      `INSERT INTO trades (seller_id, buyer_id, card_id, status)
+       VALUES ($1, $2, $3, 'requested')
        RETURNING *`,
-      [req.user.id, other_user_id, my_card_id, their_card_id]
+      [seller_id, req.user.id, card_id]
     );
 
     res.status(201).json({ trade: result.rows[0] });
@@ -142,44 +152,38 @@ router.post('/', auth, async (req, res) => {
   }
 });
 
-// PUT /api/trades/:id/accept — accept a trade proposal
+// PUT /api/trades/:id/accept — seller accepts the request
 router.put('/:id/accept', auth, async (req, res) => {
   try {
-    // Only the other user (not the proposer) can accept
     const trade = await pool.query(
-      "SELECT * FROM trades WHERE id = $1 AND status = 'proposed'",
+      "SELECT * FROM trades WHERE id = $1 AND status = 'requested'",
       [req.params.id]
     );
     if (trade.rows.length === 0) {
-      return res.status(404).json({ error: 'Trade not found or already actioned' });
+      return res.status(404).json({ error: 'Trade not found' });
     }
 
-    const t = trade.rows[0];
-    if (t.proposed_by === req.user.id) {
-      return res.status(400).json({ error: 'You cannot accept your own proposal' });
-    }
-    if (t.user_a_id !== req.user.id && t.user_b_id !== req.user.id) {
-      return res.status(403).json({ error: 'Not your trade' });
+    if (trade.rows[0].seller_id !== req.user.id) {
+      return res.status(403).json({ error: 'Only the seller can accept' });
     }
 
-    // Update trade status and card statuses
     await pool.query(
-      "UPDATE trades SET status = 'accepted', user_b_accepted = TRUE, user_a_accepted = TRUE, updated_at = NOW() WHERE id = $1",
+      "UPDATE trades SET status = 'accepted', updated_at = NOW() WHERE id = $1",
       [req.params.id]
     );
 
-    res.json({ message: 'Trade accepted! Both users should now ship their cards to HoloSwap.' });
+    res.json({ message: 'Trade accepted! Please ship the card to HoloSwap.' });
   } catch (err) {
     console.error('Accept trade error:', err);
     res.status(500).json({ error: 'Something went wrong' });
   }
 });
 
-// PUT /api/trades/:id/decline — decline a trade
+// PUT /api/trades/:id/decline — either party declines
 router.put('/:id/decline', auth, async (req, res) => {
   try {
     const trade = await pool.query(
-      "SELECT * FROM trades WHERE id = $1 AND status = 'proposed'",
+      "SELECT * FROM trades WHERE id = $1 AND status IN ('requested', 'accepted')",
       [req.params.id]
     );
     if (trade.rows.length === 0) {
@@ -187,7 +191,7 @@ router.put('/:id/decline', auth, async (req, res) => {
     }
 
     const t = trade.rows[0];
-    if (t.user_a_id !== req.user.id && t.user_b_id !== req.user.id) {
+    if (t.seller_id !== req.user.id && t.buyer_id !== req.user.id) {
       return res.status(403).json({ error: 'Not your trade' });
     }
 
@@ -196,14 +200,14 @@ router.put('/:id/decline', auth, async (req, res) => {
       [req.params.id]
     );
 
-    res.json({ message: 'Trade declined' });
+    res.json({ message: 'Trade cancelled' });
   } catch (err) {
     console.error('Decline trade error:', err);
     res.status(500).json({ error: 'Something went wrong' });
   }
 });
 
-// PUT /api/trades/:id/shipped — mark your card as shipped
+// PUT /api/trades/:id/shipped — seller marks card as shipped
 router.put('/:id/shipped', auth, async (req, res) => {
   try {
     const { tracking_number } = req.body;
@@ -213,46 +217,24 @@ router.put('/:id/shipped', auth, async (req, res) => {
       [req.params.id]
     );
     if (trade.rows.length === 0) {
-      return res.status(404).json({ error: 'Trade not found or not accepted yet' });
+      return res.status(404).json({ error: 'Trade not found or not accepted' });
     }
 
-    const t = trade.rows[0];
-
-    // Determine which card is mine
-    let myCardId;
-    let trackingField;
-    if (t.user_a_id === req.user.id) {
-      myCardId = t.card_a_id;
-      trackingField = 'tracking_a';
-    } else if (t.user_b_id === req.user.id) {
-      myCardId = t.card_b_id;
-      trackingField = 'tracking_b';
-    } else {
-      return res.status(403).json({ error: 'Not your trade' });
+    if (trade.rows[0].seller_id !== req.user.id) {
+      return res.status(403).json({ error: 'Only the seller can mark as shipped' });
     }
 
-    // Update card status to shipped
+    // Update card status
     await pool.query(
       "UPDATE cards SET status = 'shipped', updated_at = NOW() WHERE id = $1",
-      [myCardId]
+      [trade.rows[0].card_id]
     );
 
-    // Update trade with tracking
+    // Update trade
     await pool.query(
-      `UPDATE trades SET ${trackingField} = $1, updated_at = NOW() WHERE id = $2`,
+      "UPDATE trades SET status = 'shipped', tracking_number = $1, updated_at = NOW() WHERE id = $2",
       [tracking_number || null, req.params.id]
     );
-
-    // Check if both cards are shipped
-    const cardA = await pool.query('SELECT status FROM cards WHERE id = $1', [t.card_a_id]);
-    const cardB = await pool.query('SELECT status FROM cards WHERE id = $1', [t.card_b_id]);
-
-    if (cardA.rows[0].status === 'shipped' && cardB.rows[0].status === 'shipped') {
-      await pool.query(
-        "UPDATE trades SET status = 'both_shipped', updated_at = NOW() WHERE id = $1",
-        [req.params.id]
-      );
-    }
 
     res.json({ message: 'Card marked as shipped' });
   } catch (err) {
