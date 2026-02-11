@@ -112,7 +112,8 @@ router.get('/sets', async (req, res) => {
                 WHEN set_id LIKE 'base%' THEN 'Base Set'
                 WHEN set_id LIKE 'tk%' THEN 'Trainer Kit'
                 WHEN set_id LIKE 'pop%' THEN 'POP Series'
-                WHEN set_id ~ '^[A-Z][0-9]' OR set_id LIKE 'me%' OR set_id = 'P-A' THEN 'TCG Pocket'
+                WHEN set_id LIKE 'me%' THEN 'Mega Evolution'
+                WHEN set_id ~ '^[A-Z][0-9]' OR set_id = 'P-A' THEN 'TCG Pocket'
                 WHEN set_id = 'g1' THEN 'Generations'
                 WHEN set_id = 'lc' THEN 'Legendary Collection'
                 WHEN set_id = 'col1' THEN 'Call of Legends'
@@ -128,7 +129,8 @@ router.get('/sets', async (req, res) => {
                 ELSE 'Other'
               END as series,
               CASE
-                WHEN set_id ~ '^[A-Z][0-9]' OR set_id LIKE 'me%' OR set_id = 'P-A' THEN 0
+                WHEN set_id ~ '^[A-Z][0-9]' OR set_id = 'P-A' THEN 0
+                WHEN set_id LIKE 'me%' THEN 0
                 WHEN set_id LIKE 'sv%' THEN 1
                 WHEN set_id = '2021swsh' OR set_id LIKE 'swsh%' THEN 2
                 WHEN set_id IN ('2018sm','2019sm') OR set_id LIKE 'sm%' THEN 3
