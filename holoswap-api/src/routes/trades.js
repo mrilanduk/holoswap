@@ -50,7 +50,8 @@ router.get('/matches', auth, async (req, res) => {
         u.display_name as seller_name,
         u.city as seller_city
        FROM want_list w
-       JOIN cards c ON LOWER(c.card_name) = LOWER(w.card_name)
+       JOIN cards c ON LOWER(c.card_set) = LOWER(w.card_set)
+         AND c.card_number = w.card_number
          AND c.user_id != $1
          AND c.status = 'listed'
        JOIN users u ON c.user_id = u.id
@@ -90,7 +91,8 @@ router.get('/selling', auth, async (req, res) => {
         u.display_name as buyer_name,
         u.city as buyer_city
        FROM cards c
-       JOIN want_list w ON LOWER(w.card_name) = LOWER(c.card_name)
+       JOIN want_list w ON LOWER(w.card_set) = LOWER(c.card_set)
+         AND w.card_number = c.card_number
          AND w.user_id != $1
        JOIN users u ON w.user_id = u.id
        WHERE c.user_id = $1
