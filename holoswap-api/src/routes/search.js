@@ -147,6 +147,7 @@ router.get('/sets', async (req, res) => {
                 ELSE 20
               END as series_order
        FROM card_index
+       WHERE NOT (set_id ~ '^[A-B][0-9]' OR set_id LIKE 'P-A%')
        GROUP BY set_id, set_name, set_logo, set_symbol, set_total
        ORDER BY series_order, set_name`
     );
