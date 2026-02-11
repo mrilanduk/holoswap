@@ -161,32 +161,6 @@ router.get('/sets', async (req, res) => {
       cardCount: { total: parseInt(s.card_count) },
     }));
 
-    // Fetch activity counts per set
-    const [listedRes, wantedRes, tradedRes] = await Promise.all([
-      pool.query(
-        `SELECT card_set, COUNT(*) as count FROM cards WHERE status = 'listed' AND card_set IS NOT NULL GROUP BY card_set`
-      ),
-      pool.query(
-        `SELECT card_set, COUNT(*) as count FROM want_list WHERE card_set IS NOT NULL GROUP BY card_set`
-      ),
-      pool.query(
-        `SELECT c.card_set, COUNT(*) as count FROM trades t JOIN cards c ON t.card_id = c.id WHERE t.status = 'complete' AND c.card_set IS NOT NULL GROUP BY c.card_set`
-      ),
-    ]);
-
-    const listedMap = {};
-    listedRes.rows.forEach(r => { listedMap[r.card_set] = parseInt(r.count); });
-    const wantedMap = {};
-    wantedRes.rows.forEach(r => { wantedMap[r.card_set] = parseInt(r.count); });
-    const tradedMap = {};
-    tradedRes.rows.forEach(r => { tradedMap[r.card_set] = parseInt(r.count); });
-
-    sets.forEach(s => {
-      s.listed = listedMap[s.name] || 0;
-      s.wanted = wantedMap[s.name] || 0;
-      s.traded = tradedMap[s.name] || 0;
-    });
-
     res.json({ sets });
   } catch (err) {
     console.error('Sets error:', err);
@@ -194,7 +168,7 @@ router.get('/sets', async (req, res) => {
   }
 });
 
-// GET /api/search/sets/:id — get all cards in a set
+// GET /api/search/sets/:id — get all cards in a set with activity indicators
 router.get('/sets/:id', async (req, res) => {
   try {
     const setId = req.params.id;
@@ -209,6 +183,8 @@ router.get('/sets/:id', async (req, res) => {
       return res.status(404).json({ error: 'Set not found' });
     }
 
+    const s = setInfo.rows[0];
+
     const cards = await pool.query(
       `SELECT id, name, local_id, rarity, image_url
        FROM card_index
@@ -217,7 +193,26 @@ router.get('/sets/:id', async (req, res) => {
       [setId]
     );
 
-    const s = setInfo.rows[0];
+    // Get listed and wanted counts for cards in this set
+    const [listedRes, wantedRes] = await Promise.all([
+      pool.query(
+        `SELECT card_number, COUNT(*) as count FROM cards 
+         WHERE card_set = $1 AND status = 'listed' 
+         GROUP BY card_number`,
+        [s.set_name]
+      ),
+      pool.query(
+        `SELECT card_number, COUNT(*) as count FROM want_list 
+         WHERE card_set = $1 
+         GROUP BY card_number`,
+        [s.set_name]
+      ),
+    ]);
+
+    const listedMap = {};
+    listedRes.rows.forEach(r => { listedMap[r.card_number] = parseInt(r.count); });
+    const wantedMap = {};
+    wantedRes.rows.forEach(r => { wantedMap[r.card_number] = parseInt(r.count); });
 
     res.json({
       id: setId,
@@ -231,6 +226,8 @@ router.get('/sets/:id', async (req, res) => {
         number: c.local_id,
         rarity: c.rarity,
         image: c.image_url,
+        listed: listedMap[c.local_id] || 0,
+        wanted: wantedMap[c.local_id] || 0,
       })),
     });
   } catch (err) {
