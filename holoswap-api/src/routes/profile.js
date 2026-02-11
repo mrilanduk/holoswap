@@ -8,7 +8,7 @@ const router = Router();
 router.get('/', auth, async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT id, email, display_name, avatar_url, city, postcode, bio, is_pro, created_at FROM users WHERE id = $1',
+      'SELECT id, email, display_name, avatar_url, city, postcode, bio, is_pro, is_admin, created_at FROM users WHERE id = $1',
       [req.user.id]
     );
 
