@@ -15,9 +15,21 @@ function getCached(key) {
   return entry.data;
 }
 
+function formatCard(card) {
+  return {
+    id: card.id,
+    name: card.name,
+    number: card.localId,
+    rarity: card.rarity || '',
+    set: { name: card.set?.name || '' },
+    images: {
+      small: card.image ? card.image + '/low.webp' : null,
+    },
+  };
+}
+
 // GET /api/search?q=charizard
 // GET /api/search?q=4/102
-// GET /api/search?q=charizard 4/102
 router.get('/', async (req, res) => {
   try {
     const query = req.query.q;
@@ -34,13 +46,12 @@ router.get('/', async (req, res) => {
 
     let results = [];
 
-    // Check if query contains a set number pattern like "4/102" or "136/201"
+    // Check for set number pattern like "4/102"
     const setNumberMatch = query.match(/(\d+)\s*\/\s*(\d+)/);
 
     if (setNumberMatch) {
-      // Search by local ID (card number)
       const cardNumber = setNumberMatch[1];
-      const namepart = query.replace(/(\d+)\s*\/\s*(\d+)/, '').trim();
+      const namePart = query.replace(/\d+\s*\/\s*\d+/, '').trim();
 
       // Search by card number
       const url = `https://api.tcgdex.net/v2/en/cards?localId=${cardNumber}`;
@@ -49,9 +60,9 @@ router.get('/', async (req, res) => {
 
       let filtered = Array.isArray(cards) ? cards : [];
 
-      // If there's also a name in the query, filter by it
-      if (namepart) {
-        const nameLower = namepart.toLowerCase();
+      // If there's also a name, filter by it
+      if (namePart) {
+        const nameLower = namePart.toLowerCase();
         filtered = filtered.filter(c => c.name && c.name.toLowerCase().includes(nameLower));
       }
 
@@ -73,18 +84,5 @@ router.get('/', async (req, res) => {
     res.status(500).json({ error: 'Search failed' });
   }
 });
-
-function formatCard(card) {
-  return {
-    id: card.id,
-    name: card.name,
-    number: card.localId,
-    rarity: card.rarity || '',
-    set: { name: card.set?.name || '' },
-    images: {
-      small: card.image ? card.image + '/low.webp' : null,
-    },
-  };
-}
 
 module.exports = router;
