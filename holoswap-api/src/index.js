@@ -9,6 +9,7 @@ const wantsRoutes = require('./routes/wants');
 const profileRoutes = require('./routes/profile');
 const searchRoutes = require('./routes/search');
 const adminRoutes = require('./routes/admin');
+const tradesRoutes = require('./routes/trades');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -28,6 +29,7 @@ app.use('/api/wants', wantsRoutes);
 app.use('/api/profile', profileRoutes);
 app.use('/api/search', searchRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/trades', tradesRoutes);
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', service: 'holoswap-api', timestamp: new Date().toISOString() });
