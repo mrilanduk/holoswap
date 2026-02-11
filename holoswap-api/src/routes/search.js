@@ -161,6 +161,32 @@ router.get('/sets', async (req, res) => {
       cardCount: { total: parseInt(s.card_count) },
     }));
 
+    // Fetch activity counts per set
+    const [listedRes, wantedRes, tradedRes] = await Promise.all([
+      pool.query(
+        `SELECT card_set, COUNT(*) as count FROM cards WHERE status = 'listed' AND card_set IS NOT NULL GROUP BY card_set`
+      ),
+      pool.query(
+        `SELECT card_set, COUNT(*) as count FROM want_list WHERE card_set IS NOT NULL GROUP BY card_set`
+      ),
+      pool.query(
+        `SELECT c.card_set, COUNT(*) as count FROM trades t JOIN cards c ON t.card_id = c.id WHERE t.status = 'complete' AND c.card_set IS NOT NULL GROUP BY c.card_set`
+      ),
+    ]);
+
+    const listedMap = {};
+    listedRes.rows.forEach(r => { listedMap[r.card_set] = parseInt(r.count); });
+    const wantedMap = {};
+    wantedRes.rows.forEach(r => { wantedMap[r.card_set] = parseInt(r.count); });
+    const tradedMap = {};
+    tradedRes.rows.forEach(r => { tradedMap[r.card_set] = parseInt(r.count); });
+
+    sets.forEach(s => {
+      s.listed = listedMap[s.name] || 0;
+      s.wanted = wantedMap[s.name] || 0;
+      s.traded = tradedMap[s.name] || 0;
+    });
+
     res.json({ sets });
   } catch (err) {
     console.error('Sets error:', err);
