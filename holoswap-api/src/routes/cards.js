@@ -28,8 +28,8 @@ router.post('/', auth, async (req, res) => {
     }
 
     const result = await pool.query(
-      `INSERT INTO cards (user_id, card_name, card_set, card_number, rarity, condition, notes, image_url)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `INSERT INTO cards (user_id, card_name, card_set, card_number, rarity, condition, status, notes, image_url)
+       VALUES ($1, $2, $3, $4, $5, $6, 'listed', $7, $8)
        RETURNING *`,
       [req.user.id, card_name, card_set || null, card_number || null, rarity || null,
        condition || 'unknown', notes || null, image_url || null]
