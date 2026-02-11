@@ -16,10 +16,12 @@ function getCached(key) {
 }
 
 // GET /api/search?q=charizard
+// GET /api/search?q=4/102
+// GET /api/search?q=charizard 4/102
 router.get('/', async (req, res) => {
   try {
     const query = req.query.q;
-    if (!query || query.length < 2) {
+    if (!query || query.length < 1) {
       return res.json({ data: [] });
     }
 
@@ -30,22 +32,38 @@ router.get('/', async (req, res) => {
       return res.json({ data: cached });
     }
 
-    // Use TCGdex API - free, fast, no key needed
-    const url = `https://api.tcgdex.net/v2/en/cards?name=${encodeURIComponent(query)}&sort:field=name&sort:order=ASC`;
-    const response = await fetch(url);
-    const cards = await response.json();
+    let results = [];
 
-    // TCGdex returns a flat list, transform to match our frontend format
-    const results = (Array.isArray(cards) ? cards.slice(0, 20) : []).map(card => ({
-      id: card.id,
-      name: card.name,
-      number: card.localId,
-      rarity: card.rarity || '',
-      set: { name: card.set?.name || '' },
-      images: {
-        small: card.image ? card.image + '/low.webp' : null,
-      },
-    }));
+    // Check if query contains a set number pattern like "4/102" or "136/201"
+    const setNumberMatch = query.match(/(\d+)\s*\/\s*(\d+)/);
+
+    if (setNumberMatch) {
+      // Search by local ID (card number)
+      const cardNumber = setNumberMatch[1];
+      const namepart = query.replace(/(\d+)\s*\/\s*(\d+)/, '').trim();
+
+      // Search by card number
+      const url = `https://api.tcgdex.net/v2/en/cards?localId=${cardNumber}`;
+      const response = await fetch(url);
+      const cards = await response.json();
+
+      let filtered = Array.isArray(cards) ? cards : [];
+
+      // If there's also a name in the query, filter by it
+      if (namepart) {
+        const nameLower = namepart.toLowerCase();
+        filtered = filtered.filter(c => c.name && c.name.toLowerCase().includes(nameLower));
+      }
+
+      results = filtered.slice(0, 20).map(formatCard);
+    } else {
+      // Regular name search
+      const url = `https://api.tcgdex.net/v2/en/cards?name=${encodeURIComponent(query)}&sort:field=name&sort:order=ASC`;
+      const response = await fetch(url);
+      const cards = await response.json();
+
+      results = (Array.isArray(cards) ? cards.slice(0, 20) : []).map(formatCard);
+    }
 
     cache.set(cacheKey, { data: results, time: Date.now() });
 
@@ -55,5 +73,18 @@ router.get('/', async (req, res) => {
     res.status(500).json({ error: 'Search failed' });
   }
 });
+
+function formatCard(card) {
+  return {
+    id: card.id,
+    name: card.name,
+    number: card.localId,
+    rarity: card.rarity || '',
+    set: { name: card.set?.name || '' },
+    images: {
+      small: card.image ? card.image + '/low.webp' : null,
+    },
+  };
+}
 
 module.exports = router;
