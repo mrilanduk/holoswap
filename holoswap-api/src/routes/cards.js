@@ -28,8 +28,8 @@ router.post('/', auth, async (req, res) => {
     }
 
     const result = await pool.query(
-      `INSERT INTO cards (user_id, card_name, card_set, card_number, rarity, condition, status, notes, image_url)
-       VALUES ($1, $2, $3, $4, $5, $6, 'listed', $7, $8)
+      `INSERT INTO cards (user_id, card_name, card_set, card_number, rarity, condition, notes, image_url)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING *`,
       [req.user.id, card_name, card_set || null, card_number || null, rarity || null,
        condition || 'unknown', notes || null, image_url || null]
@@ -72,6 +72,21 @@ router.put('/:id', auth, async (req, res) => {
 // DELETE /api/cards/:id — remove a card
 router.delete('/:id', auth, async (req, res) => {
   try {
+    // Check for active trades
+    const activeTrade = await pool.query(
+      `SELECT id FROM trades WHERE card_id = $1 AND status NOT IN ('cancelled', 'rejected', 'complete')`,
+      [req.params.id]
+    );
+    if (activeTrade.rows.length > 0) {
+      return res.status(400).json({ error: 'Cannot delete a card with an active trade' });
+    }
+
+    // Remove any dead trades (cancelled/rejected/complete) referencing this card
+    await pool.query(
+      `DELETE FROM trades WHERE card_id = $1 AND status IN ('cancelled', 'rejected', 'complete')`,
+      [req.params.id]
+    );
+
     const result = await pool.query(
       'DELETE FROM cards WHERE id = $1 AND user_id = $2 RETURNING id',
       [req.params.id, req.user.id]
