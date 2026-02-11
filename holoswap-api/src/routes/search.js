@@ -90,15 +90,63 @@ router.get('/', async (req, res) => {
   }
 });
 
-// GET /api/search/sets — list all sets
+// GET /api/search/sets — list all sets with series grouping
 router.get('/sets', async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT DISTINCT set_id, set_name, set_logo, set_symbol, set_total,
-              COUNT(*) as card_count
+              COUNT(*) as card_count,
+              CASE
+                WHEN set_id LIKE 'sv%' THEN 'Scarlet & Violet'
+                WHEN set_id = '2021swsh' OR set_id LIKE 'swsh%' THEN 'Sword & Shield'
+                WHEN set_id IN ('2018sm','2019sm') OR set_id LIKE 'sm%' THEN 'Sun & Moon'
+                WHEN set_id IN ('2014xy','2015xy','2016xy') OR set_id LIKE 'xy%' THEN 'XY'
+                WHEN set_id IN ('2011bw','2012bw') OR set_id LIKE 'bw%' THEN 'Black & White'
+                WHEN set_id LIKE 'hgss%' THEN 'HeartGold SoulSilver'
+                WHEN set_id LIKE 'pl%' THEN 'Platinum'
+                WHEN set_id LIKE 'dp%' THEN 'Diamond & Pearl'
+                WHEN set_id LIKE 'ex%' OR set_id = 'rs%' THEN 'EX / Ruby & Sapphire'
+                WHEN set_id LIKE 'ecard%' THEN 'e-Card'
+                WHEN set_id LIKE 'neo%' THEN 'Neo'
+                WHEN set_id LIKE 'gym%' THEN 'Gym'
+                WHEN set_id LIKE 'base%' THEN 'Base Set'
+                WHEN set_id LIKE 'tk%' THEN 'Trainer Kit'
+                WHEN set_id LIKE 'pop%' THEN 'POP Series'
+                WHEN set_id ~ '^[A-Z][0-9]' OR set_id LIKE 'me%' OR set_id = 'P-A' THEN 'TCG Pocket'
+                WHEN set_id = 'g1' THEN 'Generations'
+                WHEN set_id = 'lc' THEN 'Legendary Collection'
+                WHEN set_id = 'col1' THEN 'Call of Legends'
+                WHEN set_id = 'cel25' THEN 'Celebrations'
+                WHEN set_id = 'det1' THEN 'Detective Pikachu'
+                WHEN set_id = 'si1' THEN 'Southern Islands'
+                WHEN set_id = 'dv1' THEN 'Dragon Vault'
+                WHEN set_id = 'dc1' THEN 'Double Crisis'
+                WHEN set_id = 'np' THEN 'Nintendo Promos'
+                WHEN set_id = 'ru1' THEN 'Radiant Collection'
+                WHEN set_id = 'bog' THEN 'Battle Arena Decks'
+                WHEN set_id = 'fut2020' THEN 'Futsal Collection'
+                ELSE 'Other'
+              END as series,
+              CASE
+                WHEN set_id ~ '^[A-Z][0-9]' OR set_id LIKE 'me%' OR set_id = 'P-A' THEN 0
+                WHEN set_id LIKE 'sv%' THEN 1
+                WHEN set_id = '2021swsh' OR set_id LIKE 'swsh%' THEN 2
+                WHEN set_id IN ('2018sm','2019sm') OR set_id LIKE 'sm%' THEN 3
+                WHEN set_id IN ('2014xy','2015xy','2016xy') OR set_id LIKE 'xy%' THEN 4
+                WHEN set_id IN ('2011bw','2012bw') OR set_id LIKE 'bw%' THEN 5
+                WHEN set_id LIKE 'hgss%' OR set_id = 'col1' THEN 6
+                WHEN set_id LIKE 'pl%' THEN 7
+                WHEN set_id LIKE 'dp%' THEN 8
+                WHEN set_id LIKE 'ex%' THEN 9
+                WHEN set_id LIKE 'ecard%' THEN 10
+                WHEN set_id LIKE 'neo%' THEN 11
+                WHEN set_id LIKE 'gym%' THEN 12
+                WHEN set_id LIKE 'base%' THEN 13
+                ELSE 20
+              END as series_order
        FROM card_index
        GROUP BY set_id, set_name, set_logo, set_symbol, set_total
-       ORDER BY set_name`
+       ORDER BY series_order, set_name`
     );
 
     const sets = result.rows.map(s => ({
@@ -106,6 +154,7 @@ router.get('/sets', async (req, res) => {
       name: s.set_name,
       logo: s.set_logo,
       symbol: s.set_symbol,
+      series: s.series,
       cardCount: { total: parseInt(s.card_count) },
     }));
 
