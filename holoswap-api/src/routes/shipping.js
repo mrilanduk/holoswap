@@ -95,16 +95,15 @@ router.post('/create-order', auth, requireAdmin, async (req, res) => {
         shippingCostCharged: 0,
         total: parseFloat(t.price) || 5.00,
         currencyCode: 'GBP',
+        postageDetails: {
+          serviceCode: service_code || 'STL1', // Default: 2nd Class
+          sendNotificationsTo: 'sender',
+        },
         label: {
           includeLabelInResponse: true,
         },
       }],
     };
-
-    // If a specific service is requested
-    if (service_code) {
-      orderData.items[0].packages[0].serviceCode = service_code;
-    }
 
     const response = await fetch(`${ROYAL_MAIL_API}/orders`, {
       method: 'POST',
