@@ -91,6 +91,12 @@ const migrate = async () => {
     CREATE INDEX IF NOT EXISTS idx_want_list_card ON want_list(card_name);
     CREATE INDEX IF NOT EXISTS idx_submissions_user ON submissions(user_id);
 
+    -- Address fields for delivery
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS address_line1 VARCHAR(255);
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS address_line2 VARCHAR(255);
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS county VARCHAR(100);
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS country VARCHAR(100) DEFAULT 'United Kingdom';
+
   `);
 
   console.log('✅ Tables created:');
