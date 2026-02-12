@@ -8,7 +8,7 @@ const router = Router();
 router.get('/', auth, async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT id, email, display_name, avatar_url, city, postcode, bio, is_pro, created_at FROM users WHERE id = $1',
+      'SELECT id, email, display_name, avatar_url, city, postcode, bio, is_pro, created_at, address_line1, address_line2, county, country FROM users WHERE id = $1',
       [req.user.id]
     );
 
@@ -41,7 +41,7 @@ router.get('/', auth, async (req, res) => {
 // PUT /api/profile — update profile
 router.put('/', auth, async (req, res) => {
   try {
-    const { display_name, city, postcode, bio } = req.body;
+    const { display_name, city, postcode, bio, address_line1, address_line2, county, country } = req.body;
 
     const result = await pool.query(
       `UPDATE users SET
@@ -49,10 +49,14 @@ router.put('/', auth, async (req, res) => {
         city = COALESCE($2, city),
         postcode = COALESCE($3, postcode),
         bio = COALESCE($4, bio),
+        address_line1 = COALESCE($5, address_line1),
+        address_line2 = COALESCE($6, address_line2),
+        county = COALESCE($7, county),
+        country = COALESCE($8, country),
         updated_at = NOW()
-       WHERE id = $5
-       RETURNING id, email, display_name, avatar_url, city, postcode, bio, is_pro`,
-      [display_name, city, postcode, bio, req.user.id]
+       WHERE id = $9
+       RETURNING id, email, display_name, avatar_url, city, postcode, bio, is_pro, address_line1, address_line2, county, country`,
+      [display_name, city, postcode, bio, address_line1, address_line2, county, country, req.user.id]
     );
 
     res.json({ user: result.rows[0] });
