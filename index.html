@@ -1,0 +1,1045 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HoloSwap — The Trusted Way to Trade Pokémon Cards</title>
+<meta name="description" content="The trusted way to trade Pokémon cards. Escrow-protected trades with Royal Mail tracked shipping, card authentication, and buyer protection. Every card guaranteed legit.">
+<meta property="og:title" content="HoloSwap — The Trusted Way to Trade Pokémon Cards">
+<meta property="og:description" content="Escrow-protected Pokémon card trading. We verify every card, handle Royal Mail tracked shipping, and guarantee authenticity. Zero risk trades.">
+<meta property="og:type" content="website">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-deep: #0a0a0f;
+    --bg-card: #12121a;
+    --bg-card-hover: #1a1a26;
+    --accent-red: #ef4444;
+    --accent-blue: #3b82f6;
+    --accent-yellow: #facc15;
+    --accent-purple: #a855f7;
+    --accent-green: #22c55e;
+    --text-primary: #f0f0f5;
+    --text-secondary: #8888a0;
+    --text-dim: #55556a;
+    --border: #22223a;
+    --glow-red: rgba(239, 68, 68, 0.15);
+    --glow-blue: rgba(59, 130, 246, 0.15);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: 'Outfit', sans-serif;
+    background: var(--bg-deep);
+    color: var(--text-primary);
+    overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ===== ANIMATED BACKGROUND ===== */
+  .bg-orbs {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    overflow: hidden;
+  }
+  .bg-orbs::before, .bg-orbs::after {
+    content: '';
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(120px);
+    animation: orbFloat 12s ease-in-out infinite alternate;
+  }
+  .bg-orbs::before {
+    width: 600px; height: 600px;
+    background: var(--glow-red);
+    top: -200px; left: -100px;
+  }
+  .bg-orbs::after {
+    width: 500px; height: 500px;
+    background: var(--glow-blue);
+    bottom: -150px; right: -100px;
+    animation-delay: -6s;
+  }
+  @keyframes orbFloat {
+    0% { transform: translate(0, 0) scale(1); }
+    100% { transform: translate(60px, 40px) scale(1.15); }
+  }
+
+  /* ===== GRID TEXTURE ===== */
+  .grid-texture {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background-image:
+      linear-gradient(var(--border) 1px, transparent 1px),
+      linear-gradient(90deg, var(--border) 1px, transparent 1px);
+    background-size: 80px 80px;
+    opacity: 0.15;
+    mask-image: radial-gradient(ellipse at 50% 30%, black 20%, transparent 70%);
+    -webkit-mask-image: radial-gradient(ellipse at 50% 30%, black 20%, transparent 70%);
+  }
+
+  /* ===== LAYOUT ===== */
+  .container {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 0 24px;
+    position: relative;
+    z-index: 1;
+  }
+
+  /* ===== NAV ===== */
+  nav {
+    padding: 24px 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .logo {
+    font-weight: 900;
+    font-size: 1.5rem;
+    letter-spacing: -0.5px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .logo-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, var(--accent-red), var(--accent-blue));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    box-shadow: 0 0 20px var(--glow-red);
+  }
+  .nav-buttons {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+  }
+  .nav-cta {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    padding: 10px 20px;
+    border-radius: 10px;
+    font-family: 'Outfit', sans-serif;
+    font-weight: 600;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+  }
+  .nav-cta:hover {
+    border-color: var(--accent-blue);
+    background: rgba(59, 130, 246, 0.08);
+  }
+  .nav-cta-primary {
+    background: linear-gradient(135deg, var(--accent-red), #dc2626);
+    border: none;
+    color: white;
+    box-shadow: 0 4px 16px rgba(239, 68, 68, 0.25);
+  }
+  .nav-cta-primary:hover {
+    background: linear-gradient(135deg, #dc2626, #b91c1c);
+    transform: translateY(-1px);
+    box-shadow: 0 6px 24px rgba(239, 68, 68, 0.35);
+  }
+
+  /* ===== HERO ===== */
+  .hero {
+    padding: 100px 0 80px;
+    text-align: center;
+  }
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    padding: 8px 18px;
+    border-radius: 100px;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin-bottom: 32px;
+    animation: fadeUp 0.6s ease-out both;
+  }
+  .badge-dot {
+    width: 8px; height: 8px;
+    background: var(--accent-yellow);
+    border-radius: 50%;
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.8); }
+  }
+
+  h1 {
+    font-size: clamp(2.8rem, 7vw, 5rem);
+    font-weight: 900;
+    line-height: 1.05;
+    letter-spacing: -2px;
+    margin-bottom: 24px;
+    animation: fadeUp 0.6s ease-out 0.1s both;
+  }
+  h1 .gradient-text {
+    background: linear-gradient(135deg, var(--accent-red) 0%, var(--accent-yellow) 40%, var(--accent-blue) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .hero-sub {
+    font-size: clamp(1.1rem, 2.5vw, 1.35rem);
+    color: var(--text-secondary);
+    max-width: 600px;
+    margin: 0 auto 48px;
+    line-height: 1.6;
+    animation: fadeUp 0.6s ease-out 0.2s both;
+  }
+
+  /* ===== HERO CTA BUTTONS ===== */
+  .hero-ctas {
+    display: flex;
+    gap: 16px;
+    justify-content: center;
+    align-items: center;
+    animation: fadeUp 0.6s ease-out 0.3s both;
+    flex-wrap: wrap;
+  }
+  .btn-hero {
+    padding: 18px 36px;
+    border-radius: 14px;
+    font-family: 'Outfit', sans-serif;
+    font-weight: 700;
+    font-size: 1.05rem;
+    cursor: pointer;
+    transition: all 0.25s;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    border: none;
+  }
+  .btn-hero-primary {
+    background: linear-gradient(135deg, var(--accent-red), #dc2626);
+    color: white;
+    box-shadow: 0 4px 24px rgba(239, 68, 68, 0.3);
+  }
+  .btn-hero-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 32px rgba(239, 68, 68, 0.45);
+  }
+  .btn-hero-secondary {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+  }
+  .btn-hero-secondary:hover {
+    border-color: var(--accent-blue);
+    background: rgba(59, 130, 246, 0.08);
+    transform: translateY(-2px);
+  }
+
+  .hero-note {
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 0.82rem;
+    margin-top: 16px;
+    animation: fadeUp 0.6s ease-out 0.4s both;
+  }
+
+  /* ===== EMAIL FORM ===== */
+  .email-form {
+    display: flex;
+    gap: 12px;
+    max-width: 480px;
+    margin: 0 auto;
+    animation: fadeUp 0.6s ease-out 0.3s both;
+  }
+  .email-form input {
+    flex: 1;
+    padding: 16px 20px;
+    border-radius: 14px;
+    border: 1px solid var(--border);
+    background: var(--bg-card);
+    color: var(--text-primary);
+    font-family: 'Outfit', sans-serif;
+    font-size: 1rem;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .email-form input::placeholder { color: var(--text-dim); }
+  .email-form input:focus { border-color: var(--accent-blue); }
+
+  .email-form button {
+    padding: 16px 28px;
+    border-radius: 14px;
+    border: none;
+    background: linear-gradient(135deg, var(--accent-red), #dc2626);
+    color: white;
+    font-family: 'Outfit', sans-serif;
+    font-weight: 700;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: all 0.25s;
+    white-space: nowrap;
+    box-shadow: 0 4px 24px rgba(239, 68, 68, 0.3);
+  }
+  .email-form button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 32px rgba(239, 68, 68, 0.45);
+  }
+
+  .form-note {
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 0.82rem;
+    margin-top: 14px;
+    animation: fadeUp 0.6s ease-out 0.4s both;
+  }
+
+  .success-msg {
+    display: none;
+    text-align: center;
+    padding: 20px;
+    background: rgba(34, 197, 94, 0.08);
+    border: 1px solid rgba(34, 197, 94, 0.25);
+    border-radius: 14px;
+    color: #4ade80;
+    font-weight: 600;
+    max-width: 480px;
+    margin: 0 auto;
+    animation: fadeUp 0.3s ease-out;
+  }
+
+  /* ===== SOCIAL PROOF ===== */
+  .social-proof {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    margin-top: 40px;
+    animation: fadeUp 0.6s ease-out 0.5s both;
+  }
+  .avatar-stack {
+    display: flex;
+  }
+  .avatar-stack span {
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    border: 2px solid var(--bg-deep);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    margin-left: -10px;
+  }
+  .avatar-stack span:first-child { margin-left: 0; }
+  .avatar-stack span:nth-child(1) { background: linear-gradient(135deg, #fbbf24, #f59e0b); }
+  .avatar-stack span:nth-child(2) { background: linear-gradient(135deg, #60a5fa, #3b82f6); }
+  .avatar-stack span:nth-child(3) { background: linear-gradient(135deg, #f87171, #ef4444); }
+  .avatar-stack span:nth-child(4) { background: linear-gradient(135deg, #a78bfa, #8b5cf6); }
+  .social-proof p {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+  }
+  .social-proof strong { color: var(--text-primary); }
+
+  /* ===== MOCKUP CARDS ===== */
+  .hero-visual {
+    margin-top: 80px;
+    display: flex;
+    justify-content: center;
+    gap: 20px;
+    perspective: 800px;
+    animation: fadeUp 0.8s ease-out 0.6s both;
+  }
+  .mock-card {
+    width: 200px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 16px;
+    transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  }
+  .mock-card:hover { transform: translateY(-8px) rotateY(-3deg); }
+  .mock-card:nth-child(1) { transform: rotate(-4deg) translateY(10px); }
+  .mock-card:nth-child(2) { transform: rotate(0deg) translateY(-5px); z-index: 2; }
+  .mock-card:nth-child(3) { transform: rotate(4deg) translateY(10px); }
+  .mock-card:nth-child(1):hover { transform: rotate(-4deg) translateY(2px); }
+  .mock-card:nth-child(3):hover { transform: rotate(4deg) translateY(2px); }
+
+  .card-img {
+    width: 100%;
+    aspect-ratio: 3/4;
+    border-radius: 10px;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 3rem;
+  }
+  .card-img-fire { background: linear-gradient(145deg, #451a03, #92400e); }
+  .card-img-water { background: linear-gradient(145deg, #0c1e3a, #1e3a5f); }
+  .card-img-electric { background: linear-gradient(145deg, #422006, #713f12); }
+
+  .card-name {
+    font-weight: 700;
+    font-size: 0.95rem;
+    margin-bottom: 4px;
+  }
+  .card-meta {
+    font-size: 0.78rem;
+    color: var(--text-dim);
+    font-family: 'Space Mono', monospace;
+  }
+  .card-tag {
+    display: inline-block;
+    margin-top: 10px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .tag-have { background: rgba(34, 197, 94, 0.12); color: #4ade80; }
+  .tag-want { background: rgba(239, 68, 68, 0.12); color: #f87171; }
+  .tag-match { background: rgba(250, 204, 21, 0.12); color: #facc15; }
+
+  /* ===== HOW IT WORKS ===== */
+  .section { padding: 100px 0; }
+  .section-label {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.8rem;
+    color: var(--accent-blue);
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    margin-bottom: 16px;
+  }
+  .section-title {
+    font-size: clamp(2rem, 4vw, 2.8rem);
+    font-weight: 800;
+    letter-spacing: -1px;
+    margin-bottom: 60px;
+  }
+
+  .steps {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+  }
+  .step {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 36px 28px;
+    transition: all 0.3s;
+    position: relative;
+    overflow: hidden;
+  }
+  .step::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, transparent, var(--accent-blue), transparent);
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  .step:hover::before { opacity: 1; }
+  .step:hover { border-color: rgba(59, 130, 246, 0.3); transform: translateY(-4px); }
+
+  .step-number {
+    font-family: 'Space Mono', monospace;
+    font-size: 3rem;
+    font-weight: 700;
+    color: var(--text-dim);
+    opacity: 0.4;
+    line-height: 1;
+    margin-bottom: 20px;
+  }
+  .step-icon {
+    font-size: 2rem;
+    margin-bottom: 16px;
+  }
+  .step h3 {
+    font-size: 1.2rem;
+    font-weight: 700;
+    margin-bottom: 10px;
+  }
+  .step p {
+    color: var(--text-secondary);
+    font-size: 0.95rem;
+    line-height: 1.6;
+  }
+
+  /* ===== TRADE JOURNEY ===== */
+  .journey {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    max-width: 700px;
+    margin: 0 auto;
+    position: relative;
+  }
+  .journey::before {
+    content: '';
+    position: absolute;
+    left: 28px;
+    top: 28px;
+    bottom: 28px;
+    width: 2px;
+    background: linear-gradient(to bottom, var(--accent-green), var(--accent-blue), var(--accent-purple), var(--accent-yellow));
+    opacity: 0.3;
+  }
+  .journey-step {
+    display: flex;
+    gap: 20px;
+    align-items: flex-start;
+    padding: 20px 0;
+    position: relative;
+  }
+  .journey-dot {
+    width: 56px;
+    height: 56px;
+    border-radius: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    flex-shrink: 0;
+    position: relative;
+    z-index: 1;
+  }
+  .journey-content {
+    flex: 1;
+    padding-top: 6px;
+  }
+  .journey-content h4 {
+    font-size: 1.05rem;
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+  .journey-content p {
+    font-size: 0.88rem;
+    color: var(--text-secondary);
+    line-height: 1.5;
+  }
+  .journey-label {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 2px;
+  }
+
+  /* ===== PROTECTION FEATURES ===== */
+  .protection-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 20px;
+    max-width: 800px;
+    margin: 0 auto;
+  }
+  .protection-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 28px 24px;
+    transition: all 0.3s;
+  }
+  .protection-card:hover {
+    border-color: rgba(59, 130, 246, 0.3);
+    transform: translateY(-3px);
+  }
+  .protection-icon {
+    font-size: 2rem;
+    margin-bottom: 14px;
+  }
+  .protection-card h3 {
+    font-size: 1.05rem;
+    font-weight: 700;
+    margin-bottom: 8px;
+  }
+  .protection-card p {
+    font-size: 0.88rem;
+    color: var(--text-secondary);
+    line-height: 1.55;
+  }
+
+  /* ===== FAQ ===== */
+  .faq-list {
+    max-width: 650px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .faq-item {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+    transition: border-color 0.2s;
+  }
+  .faq-item:hover { border-color: rgba(59, 130, 246, 0.2); }
+  .faq-q {
+    width: 100%;
+    background: none;
+    border: none;
+    color: var(--text-primary);
+    font-family: 'Outfit', sans-serif;
+    font-size: 1rem;
+    font-weight: 600;
+    padding: 20px 24px;
+    text-align: left;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .faq-q span {
+    transition: transform 0.3s;
+    color: var(--text-dim);
+  }
+  .faq-item.open .faq-q span { transform: rotate(45deg); }
+  .faq-a {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.3s ease-out;
+  }
+  .faq-a-inner {
+    padding: 0 24px 20px;
+    color: var(--text-secondary);
+    font-size: 0.92rem;
+    line-height: 1.7;
+  }
+  .faq-item.open .faq-a { max-height: 300px; }
+
+  /* ===== CTA BOTTOM ===== */
+  .cta-section {
+    text-align: center;
+    padding: 80px 0 120px;
+  }
+  .cta-section h2 {
+    font-size: clamp(2rem, 4vw, 2.8rem);
+    font-weight: 800;
+    letter-spacing: -1px;
+    margin-bottom: 16px;
+  }
+  .cta-section p {
+    color: var(--text-secondary);
+    font-size: 1.1rem;
+    margin-bottom: 36px;
+  }
+
+  /* ===== FOOTER ===== */
+  footer {
+    border-top: 1px solid var(--border);
+    padding: 32px 0;
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 0.82rem;
+    line-height: 1.8;
+  }
+  footer a { color: var(--text-secondary); text-decoration: none; }
+  footer a:hover { color: var(--text-primary); }
+
+  /* ===== ANIMATIONS ===== */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(24px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .reveal {
+    opacity: 0;
+    transform: translateY(30px);
+    transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .reveal.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  /* ===== RESPONSIVE ===== */
+  @media (max-width: 768px) {
+    .hero { padding: 60px 0 40px; }
+    .email-form { flex-direction: column; }
+    .email-form button { width: 100%; }
+    .hero-visual { flex-wrap: wrap; gap: 12px; }
+    .mock-card { width: 140px; }
+    .mock-card:nth-child(1), .mock-card:nth-child(3) { transform: none; }
+    .steps { grid-template-columns: 1fr; }
+    .protection-grid { grid-template-columns: 1fr; }
+    .social-proof { flex-direction: column; gap: 8px; }
+    h1 { letter-spacing: -1px; }
+    .journey::before { left: 27px; }
+    .nav-buttons { gap: 6px; }
+    .nav-cta { padding: 8px 14px; font-size: 0.82rem; }
+  }
+</style>
+</head>
+<body>
+
+<div class="bg-orbs"></div>
+<div class="grid-texture"></div>
+
+<div class="container">
+
+  <!-- NAV -->
+  <nav>
+    <div class="logo">
+      <div class="logo-icon">💎</div>
+      HoloSwap
+    </div>
+    <button class="nav-cta" onclick="document.getElementById('email-input').focus()">Join Waitlist</button>
+  </nav>
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="badge">
+      <span class="badge-dot"></span>
+      Launching soon — join the waitlist
+    </div>
+
+    <h1>
+      Trade cards with<br><span class="gradient-text">zero risk</span>
+    </h1>
+
+    <p class="hero-sub">
+      The only Pokémon card trading platform where every card is authenticated, every trade is escrow-protected, and every shipment is tracked with Royal Mail.
+    </p>
+
+    <div id="email-form-container">
+      <div class="email-form" id="email-form">
+        <input type="email" id="email-input" placeholder="your@email.com" required>
+        <button onclick="handleSignup()">Join Waitlist</button>
+      </div>
+      <p class="form-note">Free to join · No spam · Launching soon</p>
+    </div>
+    <div class="success-msg" id="success-msg">
+      🎉 You're in! We'll let you know when HoloSwap is ready.
+    </div>
+
+    <div class="social-proof">
+      <div class="avatar-stack">
+        <span>⚡</span>
+        <span>🔥</span>
+        <span>💧</span>
+        <span>🍃</span>
+      </div>
+      <p><strong id="waitlist-count">247</strong> trainers already on the waitlist</p>
+    </div>
+
+    <!-- Card Mockups -->
+    <div class="hero-visual">
+      <div class="mock-card">
+        <div class="card-img card-img-fire">🔥</div>
+        <div class="card-name">Charizard VMAX</div>
+        <div class="card-meta">Darkness Ablaze</div>
+        <span class="card-tag tag-have">Listed</span>
+      </div>
+      <div class="mock-card">
+        <div class="card-img card-img-electric">⚡</div>
+        <div class="card-name">Pikachu VMAX</div>
+        <div class="card-meta">Vivid Voltage</div>
+        <span class="card-tag tag-match">Verified ✓</span>
+      </div>
+      <div class="mock-card">
+        <div class="card-img card-img-water">💧</div>
+        <div class="card-name">Blastoise EX</div>
+        <div class="card-meta">Paldea Evolved</div>
+        <span class="card-tag tag-want">Wanted</span>
+      </div>
+    </div>
+
+    <!-- Trust Badges -->
+    <div style="
+      display: flex;
+      justify-content: center;
+      gap: 40px;
+      margin-top: 60px;
+      flex-wrap: wrap;
+      animation: fadeUp 0.6s ease-out 0.7s both;
+    ">
+      <div style="text-align:center">
+        <div style="font-size:1.8rem; margin-bottom:4px">🔒</div>
+        <div style="font-size:0.82rem; color:var(--text-secondary); font-weight:600">Escrow protected</div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:1.8rem; margin-bottom:4px">✅</div>
+        <div style="font-size:0.82rem; color:var(--text-secondary); font-weight:600">Every card verified</div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:1.8rem; margin-bottom:4px">📦</div>
+        <div style="font-size:0.82rem; color:var(--text-secondary); font-weight:600">Royal Mail tracked</div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:1.8rem; margin-bottom:4px">🚫</div>
+        <div style="font-size:0.82rem; color:var(--text-secondary); font-weight:600">Zero fakes. Guaranteed</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- HOW IT WORKS -->
+  <section class="section reveal" id="how-it-works">
+    <div class="section-label">How it works</div>
+    <h2 class="section-title">Three steps to your next trade</h2>
+
+    <div class="steps">
+      <div class="step">
+        <div class="step-number">01</div>
+        <div class="step-icon">📋</div>
+        <h3>List & match</h3>
+        <p>List the cards you have and add the ones you want. We'll instantly match you with other trainers looking for exactly what you've got.</p>
+      </div>
+      <div class="step">
+        <div class="step-number">02</div>
+        <div class="step-icon">🔍</div>
+        <h3>We verify everything</h3>
+        <p>Both sides ship to HoloSwap with tracking. We authenticate every card for legitimacy, check condition, and make sure everyone gets what they expect.</p>
+      </div>
+      <div class="step">
+        <div class="step-number">03</div>
+        <div class="step-icon">📦</div>
+        <h3>Tracked delivery</h3>
+        <p>Once verified, we ship your new card to you via Royal Mail Tracked. Follow it every step of the way and confirm when it arrives. Done.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- TRADE JOURNEY -->
+  <section class="section reveal">
+    <div style="text-align:center">
+      <div class="section-label">The trade journey</div>
+      <h2 class="section-title">Your card, protected every step</h2>
+    </div>
+
+    <div class="journey">
+      <div class="journey-step">
+        <div class="journey-dot" style="background: rgba(250, 204, 21, 0.12);">🤝</div>
+        <div class="journey-content">
+          <div class="journey-label" style="color: var(--accent-yellow);">Step 1</div>
+          <h4>Trade requested & accepted</h4>
+          <p>A buyer finds your card through our matching system and requests a trade. You accept when you're ready.</p>
+        </div>
+      </div>
+      <div class="journey-step">
+        <div class="journey-dot" style="background: rgba(168, 85, 247, 0.12);">📮</div>
+        <div class="journey-content">
+          <div class="journey-label" style="color: var(--accent-purple);">Step 2</div>
+          <h4>Tracked shipping to HoloSwap</h4>
+          <p>Seller ships the card to us with a tracking number. Both parties can follow the journey in real time.</p>
+        </div>
+      </div>
+      <div class="journey-step">
+        <div class="journey-dot" style="background: rgba(59, 130, 246, 0.12);">🔬</div>
+        <div class="journey-content">
+          <div class="journey-label" style="color: var(--accent-blue);">Step 3</div>
+          <h4>HoloSwap authenticates</h4>
+          <p>We receive the card, verify authenticity, and check it matches the listing. No fakes get through.</p>
+        </div>
+      </div>
+      <div class="journey-step">
+        <div class="journey-dot" style="background: rgba(34, 197, 94, 0.12);">📦</div>
+        <div class="journey-content">
+          <div class="journey-label" style="color: var(--accent-green);">Step 4</div>
+          <h4>Royal Mail Tracked to buyer</h4>
+          <p>We create a Royal Mail shipping label, dispatch the verified card, and give the buyer a live tracking link.</p>
+        </div>
+      </div>
+      <div class="journey-step">
+        <div class="journey-dot" style="background: rgba(34, 197, 94, 0.12);">✅</div>
+        <div class="journey-content">
+          <div class="journey-label" style="color: var(--accent-green);">Step 5</div>
+          <h4>Buyer confirms delivery</h4>
+          <p>The buyer confirms they've received the card. Trade complete — both parties are protected the whole way.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- BUYER PROTECTION -->
+  <section class="section reveal">
+    <div style="text-align:center">
+      <div class="section-label">Protection</div>
+      <h2 class="section-title">Why traders trust HoloSwap</h2>
+    </div>
+
+    <div class="protection-grid">
+      <div class="protection-card">
+        <div class="protection-icon">🛡️</div>
+        <h3>Escrow protection</h3>
+        <p>Cards go through HoloSwap — never directly between traders. If anything goes wrong, your card is safe with us.</p>
+      </div>
+      <div class="protection-card">
+        <div class="protection-icon">🔬</div>
+        <h3>Authentication</h3>
+        <p>Every card is checked for authenticity and condition before it's shipped to the buyer. Fakes are rejected on the spot.</p>
+      </div>
+      <div class="protection-card">
+        <div class="protection-icon">📍</div>
+        <h3>Full tracking</h3>
+        <p>Royal Mail Tracked shipping in both directions. Follow your card from seller to HoloSwap to your door.</p>
+      </div>
+      <div class="protection-card">
+        <div class="protection-icon">✋</div>
+        <h3>Buyer confirmation</h3>
+        <p>Trades only complete when the buyer confirms they've received the card. No surprises, no disputes.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- FAQ -->
+  <section class="section reveal">
+    <div style="text-align:center">
+      <div class="section-label">FAQ</div>
+      <h2 class="section-title">Common questions</h2>
+    </div>
+
+    <div class="faq-list">
+      <div class="faq-item">
+        <button class="faq-q">How does the escrow system work? <span>+</span></button>
+        <div class="faq-a"><div class="faq-a-inner">When a trade is agreed, the seller ships their card to HoloSwap — not directly to the buyer. We verify the card is authentic and matches the listing, then ship it to the buyer with Royal Mail Tracked. The trade only completes when the buyer confirms delivery. This means neither side takes on risk.</div></div>
+      </div>
+      <div class="faq-item">
+        <button class="faq-q">How do you authenticate cards? <span>+</span></button>
+        <div class="faq-a"><div class="faq-a-inner">Every card goes through a verification process when it arrives at HoloSwap. We check for fakes, reprints, and any condition issues. If a card doesn't pass, the trade is flagged and the seller is notified. We don't let anything through that doesn't match the listing.</div></div>
+      </div>
+      <div class="faq-item">
+        <button class="faq-q">How is shipping handled? <span>+</span></button>
+        <div class="faq-a"><div class="faq-a-inner">Sellers ship to HoloSwap with their own tracking number. Once we verify the card, we create a Royal Mail Tracked shipping label and dispatch it to the buyer. Both inbound and outbound tracking numbers are visible in your dashboard so you always know where the card is.</div></div>
+      </div>
+      <div class="faq-item">
+        <button class="faq-q">What card sets are supported? <span>+</span></button>
+        <div class="faq-a"><div class="faq-a-inner">Every Pokémon TCG set ever released — from Base Set to the latest expansions. Search by set, card name, or card number when listing or adding to your want list.</div></div>
+      </div>
+      <div class="faq-item">
+        <button class="faq-q">Is it free to use? <span>+</span></button>
+        <div class="faq-a"><div class="faq-a-inner">Signing up, listing cards, and building your want list is completely free. We only charge a small fee when a trade is completed — this covers authentication, handling, and Royal Mail tracked shipping to the buyer.</div></div>
+      </div>
+      <div class="faq-item">
+        <button class="faq-q">What if a card fails verification? <span>+</span></button>
+        <div class="faq-a"><div class="faq-a-inner">If a card doesn't pass our authentication check, the trade is cancelled and the card is returned to the seller. The buyer is notified and can find another match. No one ends up with a card they didn't agree to.</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- BOTTOM CTA -->
+  <section class="cta-section reveal">
+    <h2>Ready to find your <span style="color:var(--accent-yellow)">perfect trade</span>?</h2>
+    <p>Join hundreds of trainers already on the waitlist.</p>
+    <div class="email-form" id="email-form-bottom">
+      <input type="email" id="email-input-bottom" placeholder="your@email.com" required>
+      <button onclick="handleSignup('bottom')">Join Waitlist</button>
+    </div>
+    <div class="success-msg" id="success-msg-bottom">
+      🎉 You're in! We'll let you know when HoloSwap is ready.
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer>
+    <p>© 2026 HoloSwap. All rights reserved.</p>
+    <p>Not affiliated with The Pokémon Company or Nintendo. Pokémon and all related names are trademarks of their respective owners.</p>
+  </footer>
+
+</div>
+
+<script>
+  // ===== FAQ Accordion =====
+  document.querySelectorAll('.faq-q').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const item = btn.parentElement;
+      const wasOpen = item.classList.contains('open');
+      document.querySelectorAll('.faq-item').forEach(i => i.classList.remove('open'));
+      if (!wasOpen) item.classList.add('open');
+    });
+  });
+
+  // ===== Scroll Reveal =====
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('visible');
+      }
+    });
+  }, { threshold: 0.15 });
+  document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+
+  // ===== Load real waitlist count =====
+  const API_URL = 'https://api.holoswap.io';
+  fetch(`${API_URL}/api/waitlist/count`)
+    .then(r => r.json())
+    .then(data => {
+      if (data.count) document.getElementById('waitlist-count').textContent = data.count;
+    })
+    .catch(() => {});
+
+  // ===== Email Signup =====
+  async function handleSignup(variant) {
+    const isBottom = variant === 'bottom';
+    const input = document.getElementById(isBottom ? 'email-input-bottom' : 'email-input');
+    const email = input.value.trim();
+
+    if (!email || !email.includes('@') || !email.includes('.')) {
+      input.style.borderColor = 'var(--accent-red)';
+      input.focus();
+      setTimeout(() => input.style.borderColor = '', 1500);
+      return;
+    }
+
+    if (API_URL) {
+      try {
+        const res = await fetch(`${API_URL}/api/waitlist`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email }),
+        });
+        const data = await res.json();
+        if (data.position) {
+          document.getElementById('waitlist-count').textContent = data.position;
+        }
+      } catch (err) {
+        console.error('Signup error:', err);
+      }
+    }
+
+    if (isBottom) {
+      document.getElementById('email-form-bottom').style.display = 'none';
+      document.getElementById('success-msg-bottom').style.display = 'block';
+    } else {
+      document.getElementById('email-form').style.display = 'none';
+      document.querySelector('.form-note').style.display = 'none';
+      document.getElementById('success-msg').style.display = 'block';
+    }
+
+    const countEl = document.getElementById('waitlist-count');
+    countEl.textContent = parseInt(countEl.textContent) + 1;
+  }
+
+  // Enter key submit
+  document.getElementById('email-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') handleSignup();
+  });
+  document.getElementById('email-input-bottom').addEventListener('keydown', e => {
+    if (e.key === 'Enter') handleSignup('bottom');
+  });
+</script>
+
+</body>
+</html>
