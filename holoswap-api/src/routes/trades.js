@@ -293,7 +293,9 @@ router.put('/:id/accept', auth, async (req, res) => {
 router.put('/:id/decline', auth, async (req, res) => {
   try {
     const trade = await pool.query(
-      "SELECT * FROM trades WHERE id = $1 AND status IN ('requested', 'accepted')",
+      `SELECT t.*, c.card_set, c.card_number, c.condition
+       FROM trades t JOIN cards c ON t.card_id = c.id
+       WHERE t.id = $1 AND t.status IN ('requested', 'accepted')`,
       [req.params.id]
     );
     if (trade.rows.length === 0) {
@@ -305,6 +307,21 @@ router.put('/:id/decline', auth, async (req, res) => {
       return res.status(403).json({ error: 'Not your trade' });
     }
 
+    // If buyer cancels a 'requested' trade, delete all sibling broadcast trades too
+    if (t.buyer_id === req.user.id && t.status === 'requested') {
+      await pool.query(
+        `DELETE FROM trades
+         WHERE buyer_id = $1 AND status = 'requested'
+         AND card_id IN (
+           SELECT c.id FROM cards c
+           WHERE c.card_set = $2 AND c.card_number = $3 AND c.condition = $4
+         )`,
+        [req.user.id, t.card_set, t.card_number, t.condition]
+      );
+      return res.json({ message: 'Offer withdrawn' });
+    }
+
+    // Normal cancel (seller declining, or accepted stage)
     await pool.query(
       "UPDATE trades SET status = 'cancelled', updated_at = NOW() WHERE id = $1",
       [req.params.id]
