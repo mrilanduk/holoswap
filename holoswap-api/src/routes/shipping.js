@@ -109,7 +109,7 @@ router.post('/create-order', auth, requireAdmin, async (req, res) => {
     const response = await fetch(`${ROYAL_MAIL_API}/orders`, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${ROYAL_MAIL_KEY}`,
+        'Authorization': ROYAL_MAIL_KEY,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(orderData),
@@ -162,7 +162,7 @@ router.get('/label/:orderIdentifier', auth, requireAdmin, async (req, res) => {
       `${ROYAL_MAIL_API}/orders/${req.params.orderIdentifier}/label?documentType=postageLabel&includeReturnsLabel=false&includeCN=false`,
       {
         headers: {
-          'Authorization': `Bearer ${ROYAL_MAIL_KEY}`,
+          'Authorization': ROYAL_MAIL_KEY,
         },
       }
     );
@@ -224,7 +224,7 @@ router.get('/orders/:tradeId', auth, requireAdmin, async (req, res) => {
 
     const response = await fetch(`${ROYAL_MAIL_API}/orders/${rmOrderId}`, {
       headers: {
-        'Authorization': `Bearer ${ROYAL_MAIL_KEY}`,
+        'Authorization': ROYAL_MAIL_KEY,
       },
     });
 
