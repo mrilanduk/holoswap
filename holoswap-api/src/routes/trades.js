@@ -4,28 +4,15 @@ const auth = require('../middleware/auth');
 
 const router = Router();
 
-// HoloSwap escrow address
-const ESCROW_ADDRESS = {
-  name: 'HoloSwap Authentication Centre',
-  line1: '123 Example Street',
-  line2: '',
-  city: 'London',
-  county: '',
-  postcode: 'SW1A 1AA',
-  country: 'United Kingdom',
-};
-
-// GET /api/trades — get user's trades
+// GET /api/trades — get user's trades (as buyer or seller)
 router.get('/', auth, async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT t.id, t.seller_id, t.buyer_id, t.card_id, t.status, t.tracking_number,
-        t.outbound_tracking, t.price, t.holoswap_fee, t.payment_status, t.notes,
-        t.created_at, t.updated_at,
-        seller.display_name as seller_name,
-        buyer.display_name as buyer_name,
+      `SELECT t.*,
+        seller.email as seller_email, seller.display_name as seller_name,
+        buyer.email as buyer_email, buyer.display_name as buyer_name,
         c.card_name, c.card_set, c.card_number, c.rarity, c.condition,
-        c.image_url, c.status as card_status, c.estimated_value
+        c.image_url, c.status as card_status
        FROM trades t
        JOIN users seller ON t.seller_id = seller.id
        JOIN users buyer ON t.buyer_id = buyer.id
@@ -126,92 +113,16 @@ router.get('/selling', auth, async (req, res) => {
   }
 });
 
-// GET /api/trades/escrow-address — get HoloSwap shipping address
-router.get('/escrow-address', auth, async (req, res) => {
-  res.json({ address: ESCROW_ADDRESS });
-});
-
-// POST /api/trades — buyer requests a card (broadcasts to all matching sellers)
+// POST /api/trades — buyer requests a card
 router.post('/', auth, async (req, res) => {
   try {
-    const { card_id, seller_id, card_set, card_number, condition } = req.body;
+    const { card_id, seller_id } = req.body;
 
-    // Check buyer has a delivery address
-    const buyer = await pool.query(
-      'SELECT address_line1, address_line2, city, county, postcode, country FROM users WHERE id = $1',
-      [req.user.id]
-    );
-    if (!buyer.rows[0].address_line1 || !buyer.rows[0].city || !buyer.rows[0].postcode) {
-      return res.status(400).json({ error: 'Please add a delivery address in your profile before requesting a trade' });
-    }
-
-    const b = buyer.rows[0];
-    const buyerAddress = [b.address_line1, b.address_line2, b.city, b.county, b.postcode, b.country]
-      .filter(Boolean).join(', ');
-
-    // Broadcast mode: send request to ALL sellers with matching card+condition
-    if (card_set && card_number && condition) {
-      const cards = await pool.query(
-        `SELECT c.id, c.user_id, c.estimated_value FROM cards c
-         WHERE c.card_set = $1 AND c.card_number = $2 AND c.condition = $3
-         AND c.status = 'listed' AND c.user_id != $4
-         ORDER BY c.created_at ASC`,
-        [card_set, card_number, condition, req.user.id]
-      );
-
-      if (cards.rows.length === 0) {
-        return res.status(400).json({ error: 'No available cards match this request' });
-      }
-
-      // Check buyer doesn't already have active requests for this card+condition
-      const existingBuyer = await pool.query(
-        `SELECT t.id FROM trades t
-         JOIN cards c ON t.card_id = c.id
-         WHERE t.buyer_id = $1 AND c.card_set = $2 AND c.card_number = $3
-         AND c.condition = $4 AND t.status NOT IN ('cancelled', 'rejected')`,
-        [req.user.id, card_set, card_number, condition]
-      );
-      if (existingBuyer.rows.length > 0) {
-        return res.status(400).json({ error: 'You already have an active request for this card' });
-      }
-
-      // Create a trade request for EACH available seller
-      const createdTrades = [];
-      for (const card of cards.rows) {
-        const existingCard = await pool.query(
-          `SELECT id FROM trades WHERE card_id = $1 AND status NOT IN ('cancelled', 'rejected')`,
-          [card.id]
-        );
-        if (existingCard.rows.length > 0) continue;
-
-        const result = await pool.query(
-          `INSERT INTO trades (seller_id, buyer_id, card_id, status, buyer_address, price)
-           VALUES ($1, $2, $3, 'requested', $4, $5)
-           RETURNING *`,
-          [card.user_id, req.user.id, card.id, buyerAddress, card.estimated_value || null]
-        );
-        createdTrades.push(result.rows[0]);
-      }
-
-      if (createdTrades.length === 0) {
-        return res.status(400).json({ error: 'All matching cards already have active trades' });
-      }
-
-      return res.status(201).json({
-        message: `Request sent to ${createdTrades.length} seller${createdTrades.length > 1 ? 's' : ''}! First to accept wins.`,
-        trades: createdTrades,
-        count: createdTrades.length,
-      });
-    }
-
-    // Fallback: single card request (legacy)
-    if (!card_id || !seller_id) {
-      return res.status(400).json({ error: 'Missing card details' });
-    }
     if (seller_id === req.user.id) {
       return res.status(400).json({ error: "You can't buy your own card" });
     }
 
+    // Verify card exists, is listed, belongs to seller
     const card = await pool.query(
       "SELECT * FROM cards WHERE id = $1 AND user_id = $2 AND status = 'listed'",
       [card_id, seller_id]
@@ -220,6 +131,7 @@ router.post('/', auth, async (req, res) => {
       return res.status(400).json({ error: 'Card is not available' });
     }
 
+    // Check no existing active trade for this card
     const existing = await pool.query(
       `SELECT id FROM trades WHERE card_id = $1 AND status NOT IN ('cancelled', 'rejected')`,
       [card_id]
@@ -229,10 +141,10 @@ router.post('/', auth, async (req, res) => {
     }
 
     const result = await pool.query(
-      `INSERT INTO trades (seller_id, buyer_id, card_id, status, buyer_address, price)
-       VALUES ($1, $2, $3, 'requested', $4, $5)
+      `INSERT INTO trades (seller_id, buyer_id, card_id, status)
+       VALUES ($1, $2, $3, 'requested')
        RETURNING *`,
-      [seller_id, req.user.id, card_id, buyerAddress, card.rows[0].estimated_value || null]
+      [seller_id, req.user.id, card_id]
     );
 
     res.status(201).json({ trade: result.rows[0] });
@@ -242,60 +154,38 @@ router.post('/', auth, async (req, res) => {
   }
 });
 
-// PUT /api/trades/:id/accept — seller accepts the request (first to accept wins)
+// PUT /api/trades/:id/accept — seller accepts the request
 router.put('/:id/accept', auth, async (req, res) => {
   try {
     const trade = await pool.query(
-      `SELECT t.*, c.card_set, c.card_number, c.condition
-       FROM trades t JOIN cards c ON t.card_id = c.id
-       WHERE t.id = $1 AND t.status = 'requested'`,
+      "SELECT * FROM trades WHERE id = $1 AND status = 'requested'",
       [req.params.id]
     );
     if (trade.rows.length === 0) {
-      return res.status(404).json({ error: 'Trade not found or already accepted' });
+      return res.status(404).json({ error: 'Trade not found' });
     }
 
     if (trade.rows[0].seller_id !== req.user.id) {
       return res.status(403).json({ error: 'Only the seller can accept' });
     }
 
-    const t = trade.rows[0];
-
-    // Accept this trade
     await pool.query(
       "UPDATE trades SET status = 'accepted', updated_at = NOW() WHERE id = $1",
       [req.params.id]
     );
 
-    // Delete all other 'requested' trades from the same buyer for the same card+condition
-    const deleted = await pool.query(
-      `DELETE FROM trades
-       WHERE buyer_id = $1 AND id != $2 AND status = 'requested'
-       AND card_id IN (
-         SELECT c.id FROM cards c
-         WHERE c.card_set = $3 AND c.card_number = $4 AND c.condition = $5
-       )
-       RETURNING id`,
-      [t.buyer_id, req.params.id, t.card_set, t.card_number, t.condition]
-    );
-
-    res.json({
-      message: `Trade accepted! Please ship the card to HoloSwap for authentication.`,
-      escrowAddress: ESCROW_ADDRESS,
-    });
+    res.json({ message: 'Trade accepted! Please ship the card to HoloSwap.' });
   } catch (err) {
     console.error('Accept trade error:', err);
     res.status(500).json({ error: 'Something went wrong' });
   }
 });
 
-// PUT /api/trades/:id/decline — either party cancels
+// PUT /api/trades/:id/decline — either party declines
 router.put('/:id/decline', auth, async (req, res) => {
   try {
     const trade = await pool.query(
-      `SELECT t.*, c.card_set, c.card_number, c.condition
-       FROM trades t JOIN cards c ON t.card_id = c.id
-       WHERE t.id = $1 AND t.status IN ('requested', 'accepted')`,
+      "SELECT * FROM trades WHERE id = $1 AND status IN ('requested', 'accepted')",
       [req.params.id]
     );
     if (trade.rows.length === 0) {
@@ -307,30 +197,9 @@ router.put('/:id/decline', auth, async (req, res) => {
       return res.status(403).json({ error: 'Not your trade' });
     }
 
-    // If buyer cancels a 'requested' trade, delete all sibling broadcast trades too
-    if (t.buyer_id === req.user.id && t.status === 'requested') {
-      await pool.query(
-        `DELETE FROM trades
-         WHERE buyer_id = $1 AND status = 'requested'
-         AND card_id IN (
-           SELECT c.id FROM cards c
-           WHERE c.card_set = $2 AND c.card_number = $3 AND c.condition = $4
-         )`,
-        [req.user.id, t.card_set, t.card_number, t.condition]
-      );
-      return res.json({ message: 'Offer withdrawn' });
-    }
-
-    // Normal cancel (seller declining, or accepted stage)
     await pool.query(
       "UPDATE trades SET status = 'cancelled', updated_at = NOW() WHERE id = $1",
       [req.params.id]
-    );
-
-    // Reset card status back to listed
-    await pool.query(
-      "UPDATE cards SET status = 'listed', updated_at = NOW() WHERE id = $1",
-      [t.card_id]
     );
 
     res.json({ message: 'Trade cancelled' });
@@ -340,7 +209,7 @@ router.put('/:id/decline', auth, async (req, res) => {
   }
 });
 
-// PUT /api/trades/:id/shipped — seller marks card as shipped to HoloSwap
+// PUT /api/trades/:id/shipped — seller marks card as shipped
 router.put('/:id/shipped', auth, async (req, res) => {
   try {
     const { tracking_number } = req.body;
@@ -357,19 +226,68 @@ router.put('/:id/shipped', auth, async (req, res) => {
       return res.status(403).json({ error: 'Only the seller can mark as shipped' });
     }
 
+    // Update card status
     await pool.query(
       "UPDATE cards SET status = 'shipped', updated_at = NOW() WHERE id = $1",
       [trade.rows[0].card_id]
     );
 
+    // Update trade
     await pool.query(
       "UPDATE trades SET status = 'shipped', tracking_number = $1, updated_at = NOW() WHERE id = $2",
       [tracking_number || null, req.params.id]
     );
 
-    res.json({ message: 'Card marked as shipped to HoloSwap' });
+    res.json({ message: 'Card marked as shipped' });
   } catch (err) {
     console.error('Ship trade error:', err);
+    res.status(500).json({ error: 'Something went wrong' });
+  }
+});
+
+// PUT /api/trades/:id/confirm-received — buyer confirms they received the card
+router.put('/:id/confirm-received', auth, async (req, res) => {
+  try {
+    const trade = await pool.query(
+      "SELECT * FROM trades WHERE id = $1 AND status = 'dispatched'",
+      [req.params.id]
+    );
+    if (trade.rows.length === 0) {
+      return res.status(404).json({ error: 'Trade not found or not dispatched' });
+    }
+
+    if (trade.rows[0].buyer_id !== req.user.id) {
+      return res.status(403).json({ error: 'Only the buyer can confirm receipt' });
+    }
+
+    // Update trade to complete
+    await pool.query(
+      "UPDATE trades SET status = 'complete', updated_at = NOW() WHERE id = $1",
+      [req.params.id]
+    );
+
+    // Update card status to traded
+    await pool.query(
+      "UPDATE cards SET status = 'traded', updated_at = NOW() WHERE id = $1",
+      [trade.rows[0].card_id]
+    );
+
+    // Remove from want list
+    const cardInfo = await pool.query(
+      "SELECT card_set, card_number FROM cards WHERE id = $1",
+      [trade.rows[0].card_id]
+    );
+    if (cardInfo.rows.length > 0) {
+      const c = cardInfo.rows[0];
+      await pool.query(
+        "DELETE FROM want_list WHERE user_id = $1 AND LOWER(card_set) = LOWER($2) AND card_number = $3",
+        [trade.rows[0].buyer_id, c.card_set, c.card_number]
+      );
+    }
+
+    res.json({ message: 'Card received! Trade complete.' });
+  } catch (err) {
+    console.error('Confirm received error:', err);
     res.status(500).json({ error: 'Something went wrong' });
   }
 });
