@@ -53,7 +53,16 @@ router.post('/create-order', auth, requireAdmin, async (req, res) => {
     // Determine package format based on service
     const svc = service_code || 'SD1';
     const letterServices = ['BPL1', 'BPL2', 'BPR1', 'BPR2', 'STL1', 'STL2'];
-    const packageFormat = letterServices.includes(svc) ? 'letter' : 'smallParcel';
+    const largeLetterServices = ['TPN24', 'TPS48'];
+    let packageFormat = 'smallParcel';
+    if (letterServices.includes(svc)) packageFormat = 'letter';
+    if (largeLetterServices.includes(svc)) packageFormat = 'largeLetter';
+
+    const dimensionsByFormat = {
+      letter: { heightInMms: 5, widthInMms: 100, depthInMms: 150 },
+      largeLetter: { heightInMms: 25, widthInMms: 176, depthInMms: 250 },
+      smallParcel: { heightInMms: 25, widthInMms: 160, depthInMms: 230 },
+    };
 
     // Build Royal Mail order
     const orderData = {
@@ -83,9 +92,7 @@ router.post('/create-order', auth, requireAdmin, async (req, res) => {
         packages: [{
           weightInGrams: weight || 100,
           packageFormatIdentifier: packageFormat,
-          dimensions: packageFormat === 'letter'
-            ? { heightInMms: 5, widthInMms: 100, depthInMms: 150 }
-            : { heightInMms: 25, widthInMms: 160, depthInMms: 230 },
+          dimensions: dimensionsByFormat[packageFormat] || dimensionsByFormat.smallParcel,
           contents: [{
             name: `${t.card_name} - ${t.card_set} #${t.card_number}`,
             quantity: 1,
