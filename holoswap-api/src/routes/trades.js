@@ -19,9 +19,11 @@ const ESCROW_ADDRESS = {
 router.get('/', auth, async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT t.*,
-        seller.email as seller_email, seller.display_name as seller_name,
-        buyer.email as buyer_email, buyer.display_name as buyer_name,
+      `SELECT t.id, t.seller_id, t.buyer_id, t.card_id, t.status, t.tracking_number,
+        t.outbound_tracking, t.price, t.holoswap_fee, t.payment_status, t.notes,
+        t.created_at, t.updated_at,
+        seller.display_name as seller_name,
+        buyer.display_name as buyer_name,
         c.card_name, c.card_set, c.card_number, c.rarity, c.condition,
         c.image_url, c.status as card_status, c.estimated_value
        FROM trades t
