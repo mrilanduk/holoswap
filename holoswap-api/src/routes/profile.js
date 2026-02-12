@@ -8,9 +8,7 @@ const router = Router();
 router.get('/', auth, async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT id, email, display_name, avatar_url, address_line1, address_line2,
-              city, county, postcode, country, bio, is_pro, is_admin, created_at
-       FROM users WHERE id = $1`,
+      'SELECT id, email, display_name, avatar_url, city, postcode, bio, is_pro, created_at FROM users WHERE id = $1',
       [req.user.id]
     );
 
@@ -18,14 +16,20 @@ router.get('/', auth, async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    const cardCount = await pool.query('SELECT COUNT(*) FROM cards WHERE user_id = $1', [req.user.id]);
+    // Get card, want and traded counts
+    const cardCount = await pool.query("SELECT COUNT(*) FROM cards WHERE user_id = $1 AND status NOT IN ('traded', 'returned')", [req.user.id]);
     const wantCount = await pool.query('SELECT COUNT(*) FROM want_list WHERE user_id = $1', [req.user.id]);
+    const tradedCount = await pool.query(
+      "SELECT COUNT(*) FROM trades WHERE (seller_id = $1 OR buyer_id = $1) AND status = 'complete'",
+      [req.user.id]
+    );
 
     res.json({
       user: result.rows[0],
       stats: {
         cards: parseInt(cardCount.rows[0].count),
         wants: parseInt(wantCount.rows[0].count),
+        traded: parseInt(tradedCount.rows[0].count),
       }
     });
   } catch (err) {
@@ -37,43 +41,23 @@ router.get('/', auth, async (req, res) => {
 // PUT /api/profile — update profile
 router.put('/', auth, async (req, res) => {
   try {
-    const { display_name, address_line1, address_line2, city, county, postcode, country, bio } = req.body;
+    const { display_name, city, postcode, bio } = req.body;
 
     const result = await pool.query(
       `UPDATE users SET
         display_name = COALESCE($1, display_name),
-        address_line1 = COALESCE($2, address_line1),
-        address_line2 = COALESCE($3, address_line2),
-        city = COALESCE($4, city),
-        county = COALESCE($5, county),
-        postcode = COALESCE($6, postcode),
-        country = COALESCE($7, country),
-        bio = COALESCE($8, bio),
+        city = COALESCE($2, city),
+        postcode = COALESCE($3, postcode),
+        bio = COALESCE($4, bio),
         updated_at = NOW()
-       WHERE id = $9
-       RETURNING id, email, display_name, avatar_url, address_line1, address_line2,
-                 city, county, postcode, country, bio, is_pro, is_admin`,
-      [display_name, address_line1, address_line2, city, county, postcode, country, bio, req.user.id]
+       WHERE id = $5
+       RETURNING id, email, display_name, avatar_url, city, postcode, bio, is_pro`,
+      [display_name, city, postcode, bio, req.user.id]
     );
 
     res.json({ user: result.rows[0] });
   } catch (err) {
     console.error('Update profile error:', err);
-    res.status(500).json({ error: 'Something went wrong' });
-  }
-});
-
-// GET /api/profile/address-check — check if user has a delivery address
-router.get('/address-check', auth, async (req, res) => {
-  try {
-    const result = await pool.query(
-      `SELECT address_line1, city, postcode FROM users WHERE id = $1`,
-      [req.user.id]
-    );
-    const u = result.rows[0];
-    const hasAddress = !!(u.address_line1 && u.city && u.postcode);
-    res.json({ hasAddress });
-  } catch (err) {
     res.status(500).json({ error: 'Something went wrong' });
   }
 });
