@@ -131,25 +131,87 @@ router.get('/escrow-address', auth, async (req, res) => {
   res.json({ address: ESCROW_ADDRESS });
 });
 
-// POST /api/trades — buyer requests a card
+// POST /api/trades — buyer requests a card (broadcasts to all matching sellers)
 router.post('/', auth, async (req, res) => {
   try {
-    const { card_id, seller_id } = req.body;
-
-    if (seller_id === req.user.id) {
-      return res.status(400).json({ error: "You can't buy your own card" });
-    }
+    const { card_id, seller_id, card_set, card_number, condition } = req.body;
 
     // Check buyer has a delivery address
     const buyer = await pool.query(
-      'SELECT address_line1, city, postcode FROM users WHERE id = $1',
+      'SELECT address_line1, address_line2, city, county, postcode, country FROM users WHERE id = $1',
       [req.user.id]
     );
     if (!buyer.rows[0].address_line1 || !buyer.rows[0].city || !buyer.rows[0].postcode) {
       return res.status(400).json({ error: 'Please add a delivery address in your profile before requesting a trade' });
     }
 
-    // Verify card exists, is listed, belongs to seller
+    const b = buyer.rows[0];
+    const buyerAddress = [b.address_line1, b.address_line2, b.city, b.county, b.postcode, b.country]
+      .filter(Boolean).join(', ');
+
+    // Broadcast mode: send request to ALL sellers with matching card+condition
+    if (card_set && card_number && condition) {
+      const cards = await pool.query(
+        `SELECT c.id, c.user_id, c.estimated_value FROM cards c
+         WHERE c.card_set = $1 AND c.card_number = $2 AND c.condition = $3
+         AND c.status = 'listed' AND c.user_id != $4
+         ORDER BY c.created_at ASC`,
+        [card_set, card_number, condition, req.user.id]
+      );
+
+      if (cards.rows.length === 0) {
+        return res.status(400).json({ error: 'No available cards match this request' });
+      }
+
+      // Check buyer doesn't already have active requests for this card+condition
+      const existingBuyer = await pool.query(
+        `SELECT t.id FROM trades t
+         JOIN cards c ON t.card_id = c.id
+         WHERE t.buyer_id = $1 AND c.card_set = $2 AND c.card_number = $3
+         AND c.condition = $4 AND t.status NOT IN ('cancelled', 'rejected')`,
+        [req.user.id, card_set, card_number, condition]
+      );
+      if (existingBuyer.rows.length > 0) {
+        return res.status(400).json({ error: 'You already have an active request for this card' });
+      }
+
+      // Create a trade request for EACH available seller
+      const createdTrades = [];
+      for (const card of cards.rows) {
+        const existingCard = await pool.query(
+          `SELECT id FROM trades WHERE card_id = $1 AND status NOT IN ('cancelled', 'rejected')`,
+          [card.id]
+        );
+        if (existingCard.rows.length > 0) continue;
+
+        const result = await pool.query(
+          `INSERT INTO trades (seller_id, buyer_id, card_id, status, buyer_address, price)
+           VALUES ($1, $2, $3, 'requested', $4, $5)
+           RETURNING *`,
+          [card.user_id, req.user.id, card.id, buyerAddress, card.estimated_value || null]
+        );
+        createdTrades.push(result.rows[0]);
+      }
+
+      if (createdTrades.length === 0) {
+        return res.status(400).json({ error: 'All matching cards already have active trades' });
+      }
+
+      return res.status(201).json({
+        message: `Request sent to ${createdTrades.length} seller${createdTrades.length > 1 ? 's' : ''}! First to accept wins.`,
+        trades: createdTrades,
+        count: createdTrades.length,
+      });
+    }
+
+    // Fallback: single card request (legacy)
+    if (!card_id || !seller_id) {
+      return res.status(400).json({ error: 'Missing card details' });
+    }
+    if (seller_id === req.user.id) {
+      return res.status(400).json({ error: "You can't buy your own card" });
+    }
+
     const card = await pool.query(
       "SELECT * FROM cards WHERE id = $1 AND user_id = $2 AND status = 'listed'",
       [card_id, seller_id]
@@ -158,7 +220,6 @@ router.post('/', auth, async (req, res) => {
       return res.status(400).json({ error: 'Card is not available' });
     }
 
-    // Check no existing active trade for this card
     const existing = await pool.query(
       `SELECT id FROM trades WHERE card_id = $1 AND status NOT IN ('cancelled', 'rejected')`,
       [card_id]
@@ -166,11 +227,6 @@ router.post('/', auth, async (req, res) => {
     if (existing.rows.length > 0) {
       return res.status(400).json({ error: 'This card already has an active trade' });
     }
-
-    // Build buyer address string
-    const b = buyer.rows[0];
-    const buyerAddress = [b.address_line1, b.address_line2, b.city, b.county, b.postcode, b.country]
-      .filter(Boolean).join(', ');
 
     const result = await pool.query(
       `INSERT INTO trades (seller_id, buyer_id, card_id, status, buyer_address, price)
@@ -186,29 +242,47 @@ router.post('/', auth, async (req, res) => {
   }
 });
 
-// PUT /api/trades/:id/accept — seller accepts the request
+// PUT /api/trades/:id/accept — seller accepts the request (first to accept wins)
 router.put('/:id/accept', auth, async (req, res) => {
   try {
     const trade = await pool.query(
-      "SELECT * FROM trades WHERE id = $1 AND status = 'requested'",
+      `SELECT t.*, c.card_set, c.card_number, c.condition
+       FROM trades t JOIN cards c ON t.card_id = c.id
+       WHERE t.id = $1 AND t.status = 'requested'`,
       [req.params.id]
     );
     if (trade.rows.length === 0) {
-      return res.status(404).json({ error: 'Trade not found' });
+      return res.status(404).json({ error: 'Trade not found or already accepted' });
     }
 
     if (trade.rows[0].seller_id !== req.user.id) {
       return res.status(403).json({ error: 'Only the seller can accept' });
     }
 
+    const t = trade.rows[0];
+
+    // Accept this trade
     await pool.query(
       "UPDATE trades SET status = 'accepted', updated_at = NOW() WHERE id = $1",
       [req.params.id]
     );
 
+    // Cancel all other 'requested' trades from the same buyer for the same card+condition
+    const cancelled = await pool.query(
+      `UPDATE trades SET status = 'cancelled', notes = 'Auto-cancelled: another seller accepted first', updated_at = NOW()
+       WHERE buyer_id = $1 AND id != $2 AND status = 'requested'
+       AND card_id IN (
+         SELECT c.id FROM cards c
+         WHERE c.card_set = $3 AND c.card_number = $4 AND c.condition = $5
+       )
+       RETURNING id`,
+      [t.buyer_id, req.params.id, t.card_set, t.card_number, t.condition]
+    );
+
     res.json({
-      message: 'Trade accepted! Please ship the card to HoloSwap for authentication.',
+      message: `Trade accepted! ${cancelled.rows.length > 0 ? `${cancelled.rows.length} other offer${cancelled.rows.length > 1 ? 's' : ''} cancelled.` : ''} Please ship the card to HoloSwap for authentication.`,
       escrowAddress: ESCROW_ADDRESS,
+      cancelledCount: cancelled.rows.length,
     });
   } catch (err) {
     console.error('Accept trade error:', err);
