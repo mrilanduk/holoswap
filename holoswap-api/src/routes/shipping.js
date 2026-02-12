@@ -115,15 +115,32 @@ router.post('/create-order', auth, requireAdmin, async (req, res) => {
       body: JSON.stringify(orderData),
     });
 
-    const result = await response.json();
+    const responseText = await response.text();
+    console.log('Royal Mail response status:', response.status);
+    console.log('Royal Mail response body:', responseText);
+
+    let result;
+    try {
+      result = JSON.parse(responseText);
+    } catch (parseErr) {
+      console.error('Failed to parse Royal Mail response:', responseText);
+      return res.status(400).json({ error: 'Invalid response from Royal Mail', raw: responseText.substring(0, 500) });
+    }
 
     if (!response.ok) {
       console.error('Royal Mail error:', JSON.stringify(result));
       return res.status(400).json({ error: 'Royal Mail API error', details: result });
     }
 
-    // Extract order info
+    // RM may return createdOrders and/or failedOrders
     const createdOrder = result.createdOrders?.[0];
+    const failedOrder = result.failedOrders?.[0];
+
+    if (failedOrder && !createdOrder) {
+      console.error('Royal Mail order failed:', JSON.stringify(failedOrder));
+      return res.status(400).json({ error: 'Royal Mail rejected order', details: failedOrder });
+    }
+
     const rmOrderId = createdOrder?.orderIdentifier;
     const trackingNumber = createdOrder?.trackingNumber || null;
     const label = createdOrder?.label || null;
