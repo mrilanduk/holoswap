@@ -267,9 +267,9 @@ router.put('/:id/accept', auth, async (req, res) => {
       [req.params.id]
     );
 
-    // Cancel all other 'requested' trades from the same buyer for the same card+condition
-    const cancelled = await pool.query(
-      `UPDATE trades SET status = 'cancelled', notes = 'Auto-cancelled: another seller accepted first', updated_at = NOW()
+    // Delete all other 'requested' trades from the same buyer for the same card+condition
+    const deleted = await pool.query(
+      `DELETE FROM trades
        WHERE buyer_id = $1 AND id != $2 AND status = 'requested'
        AND card_id IN (
          SELECT c.id FROM cards c
@@ -280,9 +280,8 @@ router.put('/:id/accept', auth, async (req, res) => {
     );
 
     res.json({
-      message: `Trade accepted! ${cancelled.rows.length > 0 ? `${cancelled.rows.length} other offer${cancelled.rows.length > 1 ? 's' : ''} cancelled.` : ''} Please ship the card to HoloSwap for authentication.`,
+      message: `Trade accepted! Please ship the card to HoloSwap for authentication.`,
       escrowAddress: ESCROW_ADDRESS,
-      cancelledCount: cancelled.rows.length,
     });
   } catch (err) {
     console.error('Accept trade error:', err);
