@@ -4,7 +4,18 @@ const auth = require('../middleware/auth');
 
 const router = Router();
 
-// GET /api/trades — get user's trades (as buyer or seller)
+// HoloSwap escrow address
+const ESCROW_ADDRESS = {
+  name: 'HoloSwap Authentication Centre',
+  line1: '123 Example Street',
+  line2: '',
+  city: 'London',
+  county: '',
+  postcode: 'SW1A 1AA',
+  country: 'United Kingdom',
+};
+
+// GET /api/trades — get user's trades
 router.get('/', auth, async (req, res) => {
   try {
     const result = await pool.query(
@@ -12,7 +23,7 @@ router.get('/', auth, async (req, res) => {
         seller.email as seller_email, seller.display_name as seller_name,
         buyer.email as buyer_email, buyer.display_name as buyer_name,
         c.card_name, c.card_set, c.card_number, c.rarity, c.condition,
-        c.image_url, c.status as card_status
+        c.image_url, c.status as card_status, c.estimated_value
        FROM trades t
        JOIN users seller ON t.seller_id = seller.id
        JOIN users buyer ON t.buyer_id = buyer.id
@@ -113,6 +124,11 @@ router.get('/selling', auth, async (req, res) => {
   }
 });
 
+// GET /api/trades/escrow-address — get HoloSwap shipping address
+router.get('/escrow-address', auth, async (req, res) => {
+  res.json({ address: ESCROW_ADDRESS });
+});
+
 // POST /api/trades — buyer requests a card
 router.post('/', auth, async (req, res) => {
   try {
@@ -120,6 +136,15 @@ router.post('/', auth, async (req, res) => {
 
     if (seller_id === req.user.id) {
       return res.status(400).json({ error: "You can't buy your own card" });
+    }
+
+    // Check buyer has a delivery address
+    const buyer = await pool.query(
+      'SELECT address_line1, city, postcode FROM users WHERE id = $1',
+      [req.user.id]
+    );
+    if (!buyer.rows[0].address_line1 || !buyer.rows[0].city || !buyer.rows[0].postcode) {
+      return res.status(400).json({ error: 'Please add a delivery address in your profile before requesting a trade' });
     }
 
     // Verify card exists, is listed, belongs to seller
@@ -140,11 +165,16 @@ router.post('/', auth, async (req, res) => {
       return res.status(400).json({ error: 'This card already has an active trade' });
     }
 
+    // Build buyer address string
+    const b = buyer.rows[0];
+    const buyerAddress = [b.address_line1, b.address_line2, b.city, b.county, b.postcode, b.country]
+      .filter(Boolean).join(', ');
+
     const result = await pool.query(
-      `INSERT INTO trades (seller_id, buyer_id, card_id, status)
-       VALUES ($1, $2, $3, 'requested')
+      `INSERT INTO trades (seller_id, buyer_id, card_id, status, buyer_address, price)
+       VALUES ($1, $2, $3, 'requested', $4, $5)
        RETURNING *`,
-      [seller_id, req.user.id, card_id]
+      [seller_id, req.user.id, card_id, buyerAddress, card.rows[0].estimated_value || null]
     );
 
     res.status(201).json({ trade: result.rows[0] });
@@ -174,14 +204,17 @@ router.put('/:id/accept', auth, async (req, res) => {
       [req.params.id]
     );
 
-    res.json({ message: 'Trade accepted! Please ship the card to HoloSwap.' });
+    res.json({
+      message: 'Trade accepted! Please ship the card to HoloSwap for authentication.',
+      escrowAddress: ESCROW_ADDRESS,
+    });
   } catch (err) {
     console.error('Accept trade error:', err);
     res.status(500).json({ error: 'Something went wrong' });
   }
 });
 
-// PUT /api/trades/:id/decline — either party declines
+// PUT /api/trades/:id/decline — either party cancels
 router.put('/:id/decline', auth, async (req, res) => {
   try {
     const trade = await pool.query(
@@ -202,6 +235,12 @@ router.put('/:id/decline', auth, async (req, res) => {
       [req.params.id]
     );
 
+    // Reset card status back to listed
+    await pool.query(
+      "UPDATE cards SET status = 'listed', updated_at = NOW() WHERE id = $1",
+      [t.card_id]
+    );
+
     res.json({ message: 'Trade cancelled' });
   } catch (err) {
     console.error('Decline trade error:', err);
@@ -209,7 +248,7 @@ router.put('/:id/decline', auth, async (req, res) => {
   }
 });
 
-// PUT /api/trades/:id/shipped — seller marks card as shipped
+// PUT /api/trades/:id/shipped — seller marks card as shipped to HoloSwap
 router.put('/:id/shipped', auth, async (req, res) => {
   try {
     const { tracking_number } = req.body;
@@ -226,19 +265,17 @@ router.put('/:id/shipped', auth, async (req, res) => {
       return res.status(403).json({ error: 'Only the seller can mark as shipped' });
     }
 
-    // Update card status
     await pool.query(
       "UPDATE cards SET status = 'shipped', updated_at = NOW() WHERE id = $1",
       [trade.rows[0].card_id]
     );
 
-    // Update trade
     await pool.query(
       "UPDATE trades SET status = 'shipped', tracking_number = $1, updated_at = NOW() WHERE id = $2",
       [tracking_number || null, req.params.id]
     );
 
-    res.json({ message: 'Card marked as shipped' });
+    res.json({ message: 'Card marked as shipped to HoloSwap' });
   } catch (err) {
     console.error('Ship trade error:', err);
     res.status(500).json({ error: 'Something went wrong' });
