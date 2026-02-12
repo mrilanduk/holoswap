@@ -8,7 +8,7 @@ const router = Router();
 router.get('/', auth, async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT * FROM cards WHERE user_id = $1 ORDER BY created_at DESC',
+      'SELECT * FROM cards WHERE user_id = $1 AND status NOT IN (\'traded\', \'returned\') ORDER BY created_at DESC',
       [req.user.id]
     );
     res.json({ cards: result.rows });
