@@ -263,23 +263,40 @@ router.put('/trades/:id/ship-to-buyer', auth, requireAdmin, async (req, res) => 
 router.put('/trades/:id/complete', auth, requireAdmin, async (req, res) => {
   try {
     const trade = await pool.query(
-      "SELECT * FROM trades WHERE id = $1 AND status = 'dispatched'",
+      `SELECT t.*, c.card_set, c.card_number, c.card_name
+       FROM trades t JOIN cards c ON t.card_id = c.id
+       WHERE t.id = $1 AND t.status = 'dispatched'`,
       [req.params.id]
     );
     if (trade.rows.length === 0) {
       return res.status(404).json({ error: 'Trade not found or not dispatched' });
     }
 
+    const t = trade.rows[0];
+
+    // Mark trade complete
     await pool.query(
       "UPDATE trades SET status = 'complete', updated_at = NOW() WHERE id = $1",
       [req.params.id]
     );
+
+    // Mark seller's card as traded
     await pool.query(
       "UPDATE cards SET status = 'traded', updated_at = NOW() WHERE id = $1",
-      [trade.rows[0].card_id]
+      [t.card_id]
     );
 
-    res.json({ message: 'Trade complete!' });
+    // Remove matching want from buyer's want list
+    const deleted = await pool.query(
+      `DELETE FROM want_list
+       WHERE user_id = $1 AND card_set = $2 AND card_number = $3
+       RETURNING id`,
+      [t.buyer_id, t.card_set, t.card_number]
+    );
+
+    const wantRemoved = deleted.rows.length > 0;
+
+    res.json({ message: `Trade complete!${wantRemoved ? ' Buyer want list updated.' : ''}` });
   } catch (err) {
     console.error('Admin complete error:', err);
     res.status(500).json({ error: 'Something went wrong' });
