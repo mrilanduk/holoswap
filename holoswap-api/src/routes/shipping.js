@@ -96,7 +96,7 @@ router.post('/create-order', auth, requireAdmin, async (req, res) => {
         total: parseFloat(t.price) || 5.00,
         currencyCode: 'GBP',
         postageDetails: {
-          serviceCode: service_code || 'STL1', // Default: 2nd Class
+          serviceCode: service_code || 'SD1', // Default: Special Delivery 1pm
           sendNotificationsTo: 'sender',
         },
         label: {
