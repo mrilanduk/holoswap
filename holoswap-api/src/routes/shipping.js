@@ -50,6 +50,11 @@ router.post('/create-order', auth, requireAdmin, async (req, res) => {
       return res.status(400).json({ error: 'Buyer has no delivery address' });
     }
 
+    // Determine package format based on service
+    const svc = service_code || 'SD1';
+    const letterServices = ['BPL1', 'BPL2', 'BPR1', 'BPR2', 'STL1', 'STL2'];
+    const packageFormat = letterServices.includes(svc) ? 'letter' : 'smallParcel';
+
     // Build Royal Mail order
     const orderData = {
       items: [{
@@ -77,12 +82,10 @@ router.post('/create-order', auth, requireAdmin, async (req, res) => {
         },
         packages: [{
           weightInGrams: weight || 100,
-          packageFormatIdentifier: 'letter',
-          dimensions: {
-            heightInMms: 5,
-            widthInMms: 100,
-            depthInMms: 150,
-          },
+          packageFormatIdentifier: packageFormat,
+          dimensions: packageFormat === 'letter'
+            ? { heightInMms: 5, widthInMms: 100, depthInMms: 150 }
+            : { heightInMms: 25, widthInMms: 160, depthInMms: 230 },
           contents: [{
             name: `${t.card_name} - ${t.card_set} #${t.card_number}`,
             quantity: 1,
@@ -96,7 +99,7 @@ router.post('/create-order', auth, requireAdmin, async (req, res) => {
         total: parseFloat(t.price) || 5.00,
         currencyCode: 'GBP',
         postageDetails: {
-          serviceCode: service_code || 'SD1', // Default: Special Delivery 1pm
+          serviceCode: svc, // Default: Special Delivery 1pm
           sendNotificationsTo: 'sender',
         },
         label: {
