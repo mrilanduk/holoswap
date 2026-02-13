@@ -198,6 +198,7 @@ router.get('/check', auth, async (req, res) => {
       checkRateLimit();
       console.log(`Market data cache miss: ${marketCacheKey}`);
       marketData = await getMarketData(productId);
+      console.log(`Market data response structure:`, JSON.stringify(marketData).substring(0, 300));
       setCache(marketDataCache, marketCacheKey, marketData);
       cached = false;
     } else {
@@ -208,17 +209,25 @@ router.get('/check', auth, async (req, res) => {
     let productMarketData = marketData;
     if (marketData[productId]) {
       // Response is object keyed by product ID: { "productId": {...} }
+      console.log(`Using direct product key extraction`);
       productMarketData = marketData[productId];
     } else if (marketData.data && marketData.data[productId]) {
       // Response has data wrapper: { data: { "productId": {...} } }
+      console.log(`Using data wrapper extraction`);
       productMarketData = marketData.data[productId];
     } else if (Array.isArray(marketData) && marketData.length > 0) {
       // Response is array: [{ product_id: "...", ... }]
+      console.log(`Using array extraction`);
       productMarketData = marketData[0];
     } else if (marketData.products && Array.isArray(marketData.products) && marketData.products.length > 0) {
       // Response has products array: { products: [{...}] }
+      console.log(`Using products array extraction`);
       productMarketData = marketData.products[0];
+    } else {
+      console.log(`No extraction pattern matched, using raw response`);
     }
+
+    console.log(`Product market data fields:`, Object.keys(productMarketData || {}).join(', '));
 
     // Format response (adapt to actual PokePulse response structure)
     const formattedData = {
