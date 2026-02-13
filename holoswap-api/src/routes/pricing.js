@@ -205,37 +205,85 @@ router.get('/check', auth, async (req, res) => {
       console.log(`Market data cache hit: ${marketCacheKey}`);
     }
 
-    // Extract market data for our product (batch API may return object keyed by productId)
-    let productMarketData = marketData;
-    if (marketData[productId]) {
-      // Response is object keyed by product ID: { "productId": {...} }
-      console.log(`Using direct product key extraction`);
-      productMarketData = marketData[productId];
-    } else if (marketData.data && marketData.data[productId]) {
-      // Response has data wrapper: { data: { "productId": {...} } }
-      console.log(`Using data wrapper extraction`);
-      productMarketData = marketData.data[productId];
-    } else if (Array.isArray(marketData) && marketData.length > 0) {
-      // Response is array: [{ product_id: "...", ... }]
-      console.log(`Using array extraction`);
-      productMarketData = marketData[0];
-    } else if (marketData.products && Array.isArray(marketData.products) && marketData.products.length > 0) {
-      // Response has products array: { products: [{...}] }
-      console.log(`Using products array extraction`);
-      productMarketData = marketData.products[0];
-    } else {
-      console.log(`No extraction pattern matched, using raw response`);
+    // Extract pricing records array from response
+    let pricingRecords = [];
+    if (marketData.data && marketData.data[productId]) {
+      pricingRecords = marketData.data[productId];
+      console.log(`Extracted ${pricingRecords.length} pricing records from data wrapper`);
+    } else if (marketData[productId]) {
+      pricingRecords = marketData[productId];
+      console.log(`Extracted ${pricingRecords.length} pricing records from direct key`);
+    } else if (Array.isArray(marketData)) {
+      pricingRecords = marketData;
+      console.log(`Using response as direct array (${pricingRecords.length} records)`);
     }
 
-    console.log(`Product market data fields:`, Object.keys(productMarketData || {}).join(', '));
+    if (!pricingRecords || pricingRecords.length === 0) {
+      console.log(`No pricing records found`);
+      return res.json({
+        success: true,
+        data: null,
+        message: 'No pricing data found for this card'
+      });
+    }
 
-    // Format response (adapt to actual PokePulse response structure)
+    // Build conditions object and find overall market price (NM condition)
+    const conditions = {};
+    let marketPrice = 0;
+    let currency = 'GBP';
+    let trendsData = null;
+
+    pricingRecords.forEach(record => {
+      const condition = record.condition?.toUpperCase() || 'UNKNOWN';
+      const value = parseFloat(record.value) || 0;
+
+      // Map condition to display name
+      const conditionMap = {
+        'NM': 'Near Mint',
+        'LP': 'Lightly Played',
+        'MP': 'Moderately Played',
+        'HP': 'Heavily Played',
+        'DMG': 'Damaged'
+      };
+
+      const displayCondition = conditionMap[condition] || condition;
+
+      // For now, use the value as all three prices (low/market/high)
+      // The API might provide these separately - adjust if available
+      conditions[displayCondition] = {
+        low: value * 0.9,   // Estimate 10% below market
+        market: value,
+        high: value * 1.1   // Estimate 10% above market
+      };
+
+      // Use NM price as overall market price
+      if (condition === 'NM') {
+        marketPrice = value;
+        currency = record.currency === '£' ? 'GBP' : record.currency;
+
+        // Extract trends from NM record
+        if (record.trends) {
+          trendsData = {
+            '7day': {
+              change: record.trends['7d']?.price_change || 0,
+              percentage: record.trends['7d']?.percentage_change || 0
+            },
+            '30day': {
+              change: record.trends['30d']?.price_change || 0,
+              percentage: record.trends['30d']?.percentage_change || 0
+            }
+          };
+        }
+      }
+    });
+
+    // Format response
     const formattedData = {
       productId,
-      marketPrice: productMarketData.market_price || 0,
-      currency: productMarketData.currency || 'GBP',
-      conditions: productMarketData.conditions || {},
-      trends: productMarketData.trends || null,
+      marketPrice,
+      currency,
+      conditions,
+      trends: trendsData,
       lastUpdated: new Date().toISOString(),
       cached
     };
