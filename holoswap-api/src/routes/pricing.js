@@ -155,8 +155,27 @@ router.get('/check', auth, async (req, res) => {
       console.log(`Catalogue cache hit: ${catalogueCacheKey}`);
     }
 
+    // Extract cards array from response (handle different possible structures)
+    let cardsArray = catalogueData;
+    if (Array.isArray(catalogueData)) {
+      cardsArray = catalogueData;
+    } else if (catalogueData.cards && Array.isArray(catalogueData.cards)) {
+      cardsArray = catalogueData.cards;
+    } else if (catalogueData.data && Array.isArray(catalogueData.data)) {
+      cardsArray = catalogueData.data;
+    } else if (catalogueData.results && Array.isArray(catalogueData.results)) {
+      cardsArray = catalogueData.results;
+    } else {
+      console.error('Unexpected catalogue response structure:', JSON.stringify(catalogueData).substring(0, 200));
+      return res.json({
+        success: true,
+        data: null,
+        message: 'No pricing data found for this card'
+      });
+    }
+
     // Find matching card
-    const matchingCard = findMatchingCard(catalogueData, number);
+    const matchingCard = findMatchingCard(cardsArray, number);
 
     if (!matchingCard) {
       return res.json({
@@ -185,13 +204,29 @@ router.get('/check', auth, async (req, res) => {
       console.log(`Market data cache hit: ${marketCacheKey}`);
     }
 
+    // Extract market data for our product (batch API may return object keyed by productId)
+    let productMarketData = marketData;
+    if (marketData[productId]) {
+      // Response is object keyed by product ID: { "productId": {...} }
+      productMarketData = marketData[productId];
+    } else if (marketData.data && marketData.data[productId]) {
+      // Response has data wrapper: { data: { "productId": {...} } }
+      productMarketData = marketData.data[productId];
+    } else if (Array.isArray(marketData) && marketData.length > 0) {
+      // Response is array: [{ product_id: "...", ... }]
+      productMarketData = marketData[0];
+    } else if (marketData.products && Array.isArray(marketData.products) && marketData.products.length > 0) {
+      // Response has products array: { products: [{...}] }
+      productMarketData = marketData.products[0];
+    }
+
     // Format response (adapt to actual PokePulse response structure)
     const formattedData = {
       productId,
-      marketPrice: marketData.market_price || 0,
-      currency: marketData.currency || 'GBP',
-      conditions: marketData.conditions || {},
-      trends: marketData.trends || null,
+      marketPrice: productMarketData.market_price || 0,
+      currency: productMarketData.currency || 'GBP',
+      conditions: productMarketData.conditions || {},
+      trends: productMarketData.trends || null,
       lastUpdated: new Date().toISOString(),
       cached
     };
