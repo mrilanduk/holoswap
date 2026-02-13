@@ -111,17 +111,28 @@ async function getMarketData(productId) {
 
 // Find matching card from catalogue results
 function findMatchingCard(catalogueResults, cardNumber) {
+  console.log(`Finding match for card number "${cardNumber}" among ${catalogueResults.length} results`);
+
   // Filter for raw cards only (not graded)
   const rawCards = catalogueResults.filter(card => card.material === null);
+  console.log(`${rawCards.length} raw (non-graded) cards found`);
+
+  if (rawCards.length > 0) {
+    const cardNumbers = rawCards.map(c => c.card_number).slice(0, 5);
+    console.log(`Sample card numbers: ${cardNumbers.join(', ')}`);
+  }
 
   // Match card number prefix
   const matches = rawCards.filter(card =>
     card.card_number && card.card_number.startsWith(cardNumber)
   );
 
-  if (matches.length === 0) return null;
+  if (matches.length === 0) {
+    console.log(`No matches found for card number starting with "${cardNumber}"`);
+    return null;
+  }
 
-  // Return first match
+  console.log(`Found ${matches.length} matching card(s), using first match: ${matches[0].card_number}`);
   return matches[0];
 }
 
@@ -173,6 +184,8 @@ router.get('/check', auth, async (req, res) => {
         message: 'No pricing data found for this card'
       });
     }
+
+    console.log(`Catalogue returned ${cardsArray.length} cards for "${name}" in set ${pokePulseSetId}`);
 
     // Find matching card
     const matchingCard = findMatchingCard(cardsArray, number);
