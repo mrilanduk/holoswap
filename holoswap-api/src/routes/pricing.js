@@ -117,23 +117,35 @@ function findMatchingCard(catalogueResults, cardNumber) {
   const rawCards = catalogueResults.filter(card => card.material === null);
   console.log(`${rawCards.length} raw (non-graded) cards found`);
 
+  if (rawCards.length === 0) {
+    console.log(`No raw cards found after filtering`);
+    return null;
+  }
+
   if (rawCards.length > 0) {
     const cardNumbers = rawCards.map(c => c.card_number).slice(0, 5);
     console.log(`Sample card numbers: ${cardNumbers.join(', ')}`);
   }
 
-  // Match card number prefix
-  const matches = rawCards.filter(card =>
+  // Try exact card number prefix match first
+  const exactMatches = rawCards.filter(card =>
     card.card_number && card.card_number.startsWith(cardNumber)
   );
 
-  if (matches.length === 0) {
-    console.log(`No matches found for card number starting with "${cardNumber}"`);
-    return null;
+  if (exactMatches.length > 0) {
+    console.log(`Found ${exactMatches.length} exact number match(es), using: ${exactMatches[0].card_number}`);
+    return exactMatches[0];
   }
 
-  console.log(`Found ${matches.length} matching card(s), using first match: ${matches[0].card_number}`);
-  return matches[0];
+  // If only one raw card and no exact match, use it (name + set match is already specific)
+  if (rawCards.length === 1) {
+    console.log(`Only one raw card found, using despite number mismatch: ${rawCards[0].card_number}`);
+    return rawCards[0];
+  }
+
+  // Multiple cards but no number match - can't determine which one
+  console.log(`Multiple raw cards (${rawCards.length}) but no card number match for "${cardNumber}"`);
+  return null;
 }
 
 // GET /api/pricing/check?setId=sv03.5&number=199&name=Charizard ex
