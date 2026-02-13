@@ -63,20 +63,8 @@ function convertSetIdToPokePulse(tcgdexSetId) {
 }
 
 // Search PokePulse catalogue for card
-async function searchCatalogue(pokePulseSetId, cardName, cardNumber = null) {
+async function searchCatalogue(pokePulseSetId, cardName) {
   const url = 'https://catalogueservicev2-production.up.railway.app/api/cards/search';
-
-  const searchParams = {
-    setId: pokePulseSetId,
-    cardName: cardName,
-    excludeGraded: true,
-    limit: 10
-  };
-
-  // Include card number if provided to help find correct variant
-  if (cardNumber) {
-    searchParams.cardNumber = cardNumber;
-  }
 
   const response = await fetch(url, {
     method: 'POST',
@@ -84,7 +72,12 @@ async function searchCatalogue(pokePulseSetId, cardName, cardNumber = null) {
       'Content-Type': 'application/json',
       'X-API-Key': process.env.POKEPULSE_CATALOGUE_KEY
     },
-    body: JSON.stringify(searchParams)
+    body: JSON.stringify({
+      setId: pokePulseSetId,
+      cardName: cardName,
+      excludeGraded: true,
+      limit: 10
+    })
   });
 
   if (!response.ok) {
@@ -179,7 +172,7 @@ router.get('/check', auth, async (req, res) => {
       // Cache miss - call API
       checkRateLimit();
       console.log(`Catalogue cache miss: ${catalogueCacheKey}`);
-      catalogueData = await searchCatalogue(pokePulseSetId, name, number);
+      catalogueData = await searchCatalogue(pokePulseSetId, name);
       setCache(catalogueCache, catalogueCacheKey, catalogueData);
     } else {
       console.log(`Catalogue cache hit: ${catalogueCacheKey}`);
