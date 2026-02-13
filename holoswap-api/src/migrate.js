@@ -82,6 +82,26 @@ const migrate = async () => {
       updated_at    TIMESTAMPTZ DEFAULT NOW()
     );
 
+    -- Binders (collections for organizing cards)
+    CREATE TABLE IF NOT EXISTS binders (
+      id            SERIAL PRIMARY KEY,
+      user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name          VARCHAR(255) NOT NULL,
+      description   TEXT,
+      created_at    TIMESTAMPTZ DEFAULT NOW(),
+      updated_at    TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    -- Binder cards join table (many-to-many)
+    CREATE TABLE IF NOT EXISTS binder_cards (
+      id            SERIAL PRIMARY KEY,
+      binder_id     INTEGER NOT NULL REFERENCES binders(id) ON DELETE CASCADE,
+      card_id       INTEGER NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+      position      INTEGER DEFAULT 0,
+      added_at      TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(binder_id, card_id)
+    );
+
     -- Indexes
     CREATE INDEX IF NOT EXISTS idx_waitlist_email ON waitlist(email);
     CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
@@ -90,6 +110,9 @@ const migrate = async () => {
     CREATE INDEX IF NOT EXISTS idx_want_list_user ON want_list(user_id);
     CREATE INDEX IF NOT EXISTS idx_want_list_card ON want_list(card_name);
     CREATE INDEX IF NOT EXISTS idx_submissions_user ON submissions(user_id);
+    CREATE INDEX IF NOT EXISTS idx_binders_user ON binders(user_id);
+    CREATE INDEX IF NOT EXISTS idx_binder_cards_binder ON binder_cards(binder_id);
+    CREATE INDEX IF NOT EXISTS idx_binder_cards_card ON binder_cards(card_id);
 
     -- Address fields for delivery
     ALTER TABLE users ADD COLUMN IF NOT EXISTS address_line1 VARCHAR(255);
@@ -105,8 +128,10 @@ const migrate = async () => {
   console.log('   - cards');
   console.log('   - want_list');
   console.log('   - submissions');
+  console.log('   - binders');
+  console.log('   - binder_cards');
 
-  const tables = ['waitlist', 'users', 'cards', 'want_list', 'submissions'];
+  const tables = ['waitlist', 'users', 'cards', 'want_list', 'submissions', 'binders', 'binder_cards'];
   console.log('\n📊 Current data:');
   for (const t of tables) {
     const r = await pool.query(`SELECT COUNT(*) FROM ${t}`);
