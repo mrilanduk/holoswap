@@ -673,6 +673,9 @@ router.post('/buy-lookup', auth, requireVendorOrAdmin, async (req, res) => {
         rarity: card.rarity,
         market_price: pricingData?.marketPrice || null,
         currency: pricingData?.currency || 'GBP',
+        lastSoldDate: pricingData?.lastSoldDate || null,
+        lastSoldPrice: pricingData?.lastSoldPrice || null,
+        trends: pricingData?.trends || null,
       }
     });
 
@@ -738,6 +741,9 @@ router.post('/buy-lookup-card', auth, requireVendorOrAdmin, async (req, res) => 
         rarity: card.rarity,
         market_price: pricingData?.marketPrice || null,
         currency: pricingData?.currency || 'GBP',
+        lastSoldDate: pricingData?.lastSoldDate || null,
+        lastSoldPrice: pricingData?.lastSoldPrice || null,
+        trends: pricingData?.trends || null,
       }
     });
 
