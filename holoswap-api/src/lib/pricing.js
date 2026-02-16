@@ -108,12 +108,21 @@ async function getMarketData(productId) {
 // Find matching card from catalogue results
 function findMatchingCard(catalogueResults, cardNumber) {
   console.log(`Finding match for card number "${cardNumber}" among ${catalogueResults.length} results`);
+  const materials = catalogueResults.map(c => ({ name: c.card_name || c.name, num: c.card_number, material: c.material }));
+  console.log(`Card materials: ${JSON.stringify(materials)}`);
 
-  const rawCards = catalogueResults.filter(card => card.material === null);
+  // Accept raw cards (material null, undefined, or empty string)
+  const rawCards = catalogueResults.filter(card => !card.material);
   console.log(`${rawCards.length} raw (non-graded) cards found`);
 
   if (rawCards.length === 0) {
-    console.log(`No raw cards found after filtering`);
+    // If all cards are graded/material, use them anyway as fallback
+    console.log(`No raw cards found, using all ${catalogueResults.length} cards as fallback`);
+    const allMatches = catalogueResults.filter(card =>
+      card.card_number && card.card_number.startsWith(cardNumber)
+    );
+    if (allMatches.length > 0) return allMatches[0];
+    if (catalogueResults.length === 1) return catalogueResults[0];
     return null;
   }
 
