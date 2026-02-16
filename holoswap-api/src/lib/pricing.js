@@ -233,6 +233,104 @@ function formatPricingData(pricingRecords, productId, cached) {
   };
 }
 
+// Analyze market data and recommend buy strategy
+function analyzeBuyRecommendation(pricingData) {
+  if (!pricingData) {
+    return {
+      isHotBuy: false,
+      confidence: 'low',
+      recommendedPercentage: 50,
+      reasoning: 'No market data available'
+    };
+  }
+
+  let score = 0;
+  const reasons = [];
+
+  // Factor 1: Last sold date (recency = demand)
+  if (pricingData.lastSoldDate) {
+    const daysSinceLastSale = (Date.now() - new Date(pricingData.lastSoldDate)) / (1000 * 60 * 60 * 24);
+    if (daysSinceLastSale < 3) {
+      score += 20;
+      reasons.push('Sold within last 3 days (high demand)');
+    } else if (daysSinceLastSale < 7) {
+      score += 15;
+      reasons.push('Sold within last week');
+    } else if (daysSinceLastSale < 14) {
+      score += 10;
+      reasons.push('Recent market activity');
+    } else if (daysSinceLastSale > 30) {
+      score -= 10;
+      reasons.push('No recent sales (30+ days)');
+    }
+  } else {
+    score -= 5;
+    reasons.push('No recent sale data');
+  }
+
+  // Factor 2: 7-day price trend
+  if (pricingData.trends?.['7day']) {
+    const trend7d = pricingData.trends['7day'].percentage;
+    if (trend7d > 15) {
+      score += 25;
+      reasons.push(`Strong 7d uptrend (+${trend7d.toFixed(1)}%)`);
+    } else if (trend7d > 5) {
+      score += 15;
+      reasons.push(`Moderate 7d uptrend (+${trend7d.toFixed(1)}%)`);
+    } else if (trend7d > 0) {
+      score += 5;
+      reasons.push(`Slight 7d uptrend (+${trend7d.toFixed(1)}%)`);
+    } else if (trend7d < -15) {
+      score -= 20;
+      reasons.push(`Strong 7d downtrend (${trend7d.toFixed(1)}%)`);
+    } else if (trend7d < -5) {
+      score -= 10;
+      reasons.push(`Moderate 7d downtrend (${trend7d.toFixed(1)}%)`);
+    }
+  }
+
+  // Factor 3: 30-day price trend (context)
+  if (pricingData.trends?.['30day']) {
+    const trend30d = pricingData.trends['30day'].percentage;
+    if (trend30d > 20) {
+      score += 15;
+      reasons.push(`Strong 30d uptrend (+${trend30d.toFixed(1)}%)`);
+    } else if (trend30d < -20) {
+      score -= 15;
+      reasons.push(`Strong 30d downtrend (${trend30d.toFixed(1)}%)`);
+    }
+  }
+
+  // Calculate recommendation
+  let isHotBuy = score >= 30;
+  let confidence = score >= 40 ? 'high' : score >= 20 ? 'medium' : 'low';
+  let recommendedPercentage = 50; // base
+
+  if (score >= 40) {
+    recommendedPercentage = 75; // hot card, pay more
+  } else if (score >= 25) {
+    recommendedPercentage = 70;
+  } else if (score >= 15) {
+    recommendedPercentage = 65;
+  } else if (score >= 5) {
+    recommendedPercentage = 60;
+  } else if (score >= -5) {
+    recommendedPercentage = 55;
+  } else if (score >= -15) {
+    recommendedPercentage = 50;
+  } else {
+    recommendedPercentage = 45; // risky card, low offer
+  }
+
+  return {
+    isHotBuy,
+    confidence,
+    recommendedPercentage,
+    reasoning: reasons.join('. '),
+    score
+  };
+}
+
 module.exports = {
   catalogueCache,
   marketDataCache,
@@ -247,5 +345,6 @@ module.exports = {
   findMatchingCard,
   extractCardsArray,
   extractPricingRecords,
-  formatPricingData
+  formatPricingData,
+  analyzeBuyRecommendation
 };

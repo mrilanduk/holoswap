@@ -5,7 +5,8 @@ const {
   catalogueCache, marketDataCache, CATALOGUE_TTL, MARKET_DATA_TTL,
   getCached, setCache, checkRateLimit,
   convertSetIdToPokePulse, searchCatalogue, getMarketData,
-  findMatchingCard, extractCardsArray, extractPricingRecords, formatPricingData
+  findMatchingCard, extractCardsArray, extractPricingRecords, formatPricingData,
+  analyzeBuyRecommendation
 } = require('../lib/pricing');
 
 const router = Router();
@@ -661,6 +662,8 @@ router.post('/buy-lookup', auth, requireVendorOrAdmin, async (req, res) => {
       ]
     );
 
+    const recommendation = analyzeBuyRecommendation(pricingData);
+
     res.json({
       success: true,
       lookup: {
@@ -676,6 +679,7 @@ router.post('/buy-lookup', auth, requireVendorOrAdmin, async (req, res) => {
         lastSoldDate: pricingData?.lastSoldDate || null,
         lastSoldPrice: pricingData?.lastSoldPrice || null,
         trends: pricingData?.trends || null,
+        recommendation,
       }
     });
 
@@ -729,6 +733,8 @@ router.post('/buy-lookup-card', auth, requireVendorOrAdmin, async (req, res) => 
       ]
     );
 
+    const recommendation = analyzeBuyRecommendation(pricingData);
+
     res.json({
       success: true,
       lookup: {
@@ -744,6 +750,7 @@ router.post('/buy-lookup-card', auth, requireVendorOrAdmin, async (req, res) => 
         lastSoldDate: pricingData?.lastSoldDate || null,
         lastSoldPrice: pricingData?.lastSoldPrice || null,
         trends: pricingData?.trends || null,
+        recommendation,
       }
     });
 
