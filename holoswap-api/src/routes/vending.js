@@ -818,6 +818,73 @@ router.get('/buys/stats', auth, requireVendorOrAdmin, async (req, res) => {
   }
 });
 
+// ADMIN: GET /api/vending/card-stats/:setId/:cardNumber
+// Returns historical stats for a specific card
+router.get('/card-stats/:setId/:cardNumber', auth, requireVendorOrAdmin, async (req, res) => {
+  try {
+    const { setId, cardNumber } = req.params;
+    const vf = vendorFilter(req, 3);
+
+    // Get buy history for this card
+    const buyResult = await pool.query(
+      `SELECT
+        COUNT(*) as buy_count,
+        COALESCE(AVG(sale_price), 0) as avg_buy_price,
+        COALESCE(MIN(sale_price), 0) as min_buy_price,
+        COALESCE(MAX(sale_price), 0) as max_buy_price,
+        MAX(completed_at) as last_buy_date
+       FROM vending_lookups
+       WHERE status = 'completed'
+         AND COALESCE(type, 'sell') = 'buy'
+         AND set_id = $1
+         AND card_number = $2
+         ${vf.clause}`,
+      [setId, cardNumber, ...vf.params]
+    );
+
+    // Get sell history for this card
+    const vf2 = vendorFilter(req, 3);
+    const sellResult = await pool.query(
+      `SELECT
+        COUNT(*) as sell_count,
+        COALESCE(AVG(sale_price), 0) as avg_sell_price,
+        COALESCE(MIN(sale_price), 0) as min_sell_price,
+        COALESCE(MAX(sale_price), 0) as max_sell_price,
+        MAX(completed_at) as last_sell_date
+       FROM vending_lookups
+       WHERE status = 'completed'
+         AND COALESCE(type, 'sell') = 'sell'
+         AND set_id = $1
+         AND card_number = $2
+         ${vf2.clause}`,
+      [setId, cardNumber, ...vf2.params]
+    );
+
+    const buyData = buyResult.rows[0];
+    const sellData = sellResult.rows[0];
+
+    res.json({
+      buys: {
+        count: parseInt(buyData.buy_count),
+        avg_price: parseFloat(buyData.avg_buy_price),
+        min_price: parseFloat(buyData.min_buy_price),
+        max_price: parseFloat(buyData.max_buy_price),
+        last_date: buyData.last_buy_date,
+      },
+      sells: {
+        count: parseInt(sellData.sell_count),
+        avg_price: parseFloat(sellData.avg_sell_price),
+        min_price: parseFloat(sellData.min_sell_price),
+        max_price: parseFloat(sellData.max_sell_price),
+        last_date: sellData.last_sell_date,
+      },
+    });
+  } catch (err) {
+    console.error('[Vending] Card stats error:', err);
+    res.status(500).json({ error: 'Failed to load card stats' });
+  }
+});
+
 // ADMIN: Commit day summary
 router.post('/commit-day', auth, requireVendorOrAdmin, async (req, res) => {
   try {
