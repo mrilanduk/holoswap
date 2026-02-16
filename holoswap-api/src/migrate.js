@@ -149,6 +149,9 @@ const migrate = async () => {
     -- Vending: basket grouping
     ALTER TABLE vending_lookups ADD COLUMN IF NOT EXISTS basket_id VARCHAR(50);
 
+    -- Vending: payment method (card/cash)
+    ALTER TABLE vending_lookups ADD COLUMN IF NOT EXISTS payment_method VARCHAR(10);
+
     -- Daily vending summaries (committed end-of-day snapshots)
     CREATE TABLE IF NOT EXISTS vending_daily_summaries (
       id            SERIAL PRIMARY KEY,

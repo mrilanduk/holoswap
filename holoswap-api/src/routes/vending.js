@@ -446,17 +446,18 @@ router.get('/queue', auth, requireAdmin, async (req, res) => {
 // ADMIN: PUT /api/vending/queue/:id/complete
 router.put('/queue/:id/complete', auth, requireAdmin, async (req, res) => {
   try {
-    const { sale_price, sale_notes } = req.body;
+    const { sale_price, sale_notes, payment_method } = req.body;
     const result = await pool.query(
       `UPDATE vending_lookups SET
         status = 'completed',
         sale_price = $1,
         sale_notes = $2,
-        completed_by = $3,
+        payment_method = $3,
+        completed_by = $4,
         completed_at = NOW()
-       WHERE id = $4
+       WHERE id = $5
        RETURNING *`,
-      [sale_price || null, sale_notes || null, req.user.id, req.params.id]
+      [sale_price || null, sale_notes || null, payment_method || null, req.user.id, req.params.id]
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Lookup not found' });
     res.json({ lookup: result.rows[0] });
