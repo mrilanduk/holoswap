@@ -173,6 +173,14 @@ function formatPricingData(pricingRecords, productId, cached) {
   let currency = 'GBP';
   let trendsData = null;
 
+  // Log raw record to see what fields are available
+  if (pricingRecords.length > 0) {
+    console.log('[Pricing] Sample record fields:', Object.keys(pricingRecords[0]));
+    if (pricingRecords[0].trends) {
+      console.log('[Pricing] Trends data:', JSON.stringify(pricingRecords[0].trends, null, 2));
+    }
+  }
+
   pricingRecords.forEach(record => {
     const condition = record.condition?.toUpperCase() || 'UNKNOWN';
     const value = parseFloat(record.value) || 0;
