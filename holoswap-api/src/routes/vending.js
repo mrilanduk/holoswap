@@ -700,14 +700,6 @@ router.post('/commit-day', auth, requireAdmin, async (req, res) => {
     const date = req.body.date || new Date().toISOString().split('T')[0];
     const notes = req.body.notes || null;
 
-    const existing = await pool.query(
-      'SELECT id FROM vending_daily_summaries WHERE summary_date = $1',
-      [date]
-    );
-    if (existing.rows.length > 0) {
-      return res.status(409).json({ error: 'This day has already been committed' });
-    }
-
     const sellResult = await pool.query(
       `SELECT COALESCE(SUM(sale_price), 0) as total_sold, COUNT(*) as cards_sold
        FROM vending_lookups
@@ -730,6 +722,15 @@ router.post('/commit-day', auth, requireAdmin, async (req, res) => {
     const result = await pool.query(
       `INSERT INTO vending_daily_summaries (summary_date, total_sold, cards_sold, total_bought, cards_bought, net_profit, notes, committed_by)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       ON CONFLICT (summary_date) DO UPDATE SET
+         total_sold = EXCLUDED.total_sold,
+         cards_sold = EXCLUDED.cards_sold,
+         total_bought = EXCLUDED.total_bought,
+         cards_bought = EXCLUDED.cards_bought,
+         net_profit = EXCLUDED.net_profit,
+         notes = COALESCE(EXCLUDED.notes, vending_daily_summaries.notes),
+         committed_by = EXCLUDED.committed_by,
+         created_at = NOW()
        RETURNING *`,
       [date, totalSold, cardsSold, totalBought, cardsBought, netProfit, notes, req.user.id]
     );
