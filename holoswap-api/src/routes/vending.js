@@ -446,12 +446,14 @@ router.post('/submit-basket', async (req, res) => {
 
     const basketId = `basket_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
-    await pool.query(
-      `UPDATE vending_lookups SET basket_id = $1 WHERE id = ANY($2) AND status = 'pending'`,
-      [basketId, lookup_ids]
+    const intIds = lookup_ids.map(id => parseInt(id, 10)).filter(id => !isNaN(id));
+    const result = await pool.query(
+      `UPDATE vending_lookups SET basket_id = $1 WHERE id = ANY($2::int[]) AND status = 'pending'`,
+      [basketId, intIds]
     );
 
-    res.json({ success: true, basket_id: basketId, count: lookup_ids.length });
+    console.log(`[Vending] Submit basket: ${intIds.length} IDs sent, ${result.rowCount} rows updated, basket_id=${basketId}`);
+    res.json({ success: true, basket_id: basketId, count: result.rowCount });
   } catch (err) {
     console.error('[Vending] Submit basket error:', err);
     res.status(500).json({ error: 'Failed to submit basket' });
