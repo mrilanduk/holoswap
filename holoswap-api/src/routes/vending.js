@@ -410,7 +410,7 @@ router.get('/queue', auth, requireAdmin, async (req, res) => {
   try {
     const status = req.query.status || 'pending';
     const result = await pool.query(
-      `SELECT * FROM vending_lookups WHERE status = $1 ORDER BY created_at DESC LIMIT 50`,
+      `SELECT * FROM vending_lookups WHERE status = $1 AND COALESCE(type, 'sell') = 'sell' ORDER BY created_at DESC LIMIT 50`,
       [status]
     );
     res.json({ lookups: result.rows });
@@ -468,6 +468,7 @@ router.get('/sales', auth, requireAdmin, async (req, res) => {
        FROM vending_lookups vl
        LEFT JOIN users u ON vl.completed_by = u.id
        WHERE vl.status = 'completed'
+         AND COALESCE(vl.type, 'sell') = 'sell'
          AND vl.completed_at::date = $1
        ORDER BY vl.completed_at DESC`,
       [date]
@@ -476,7 +477,7 @@ router.get('/sales', auth, requireAdmin, async (req, res) => {
     const totalResult = await pool.query(
       `SELECT COALESCE(SUM(sale_price), 0) as total_sales, COUNT(*) as sale_count
        FROM vending_lookups
-       WHERE status = 'completed' AND completed_at::date = $1`,
+       WHERE status = 'completed' AND COALESCE(type, 'sell') = 'sell' AND completed_at::date = $1`,
       [date]
     );
 
@@ -488,6 +489,208 @@ router.get('/sales', auth, requireAdmin, async (req, res) => {
   } catch (err) {
     console.error('[Vending] Sales error:', err);
     res.status(500).json({ error: 'Failed to load sales' });
+  }
+});
+
+// ============================================================
+// ADMIN: POST /api/vending/buy-lookup
+// Admin looks up a card for buying from a customer
+// ============================================================
+router.post('/buy-lookup', auth, requireAdmin, async (req, res) => {
+  try {
+    const { input } = req.body;
+    if (!input || !input.trim()) {
+      return res.status(400).json({ error: 'Please enter a card ID or name' });
+    }
+
+    const parsed = parseCardInput(input);
+    console.log(`[Vending Buy] Input: "${input}" → parsed:`, parsed);
+
+    // Name search mode
+    if (parsed.type === 'name_search') {
+      const cards = await searchCardsByName(parsed.query);
+      if (cards.length === 0) {
+        return res.json({ success: true, results: [], message: 'No cards found' });
+      }
+      return res.json({
+        success: true,
+        results: cards.map(c => ({
+          name: c.name,
+          set_id: c.set_id,
+          set_name: c.set_name,
+          local_id: c.local_id,
+          image_url: c.image_url,
+          rarity: c.rarity,
+        }))
+      });
+    }
+
+    if (parsed.type === 'number_only') {
+      return res.json({
+        success: true,
+        results: [],
+        message: 'Please include a set code (e.g. SVI 089/123)'
+      });
+    }
+
+    const setId = await resolveSetCode(parsed.setCode);
+    if (!setId) {
+      return res.json({
+        success: true,
+        results: [],
+        message: `Unknown set code "${parsed.setCode}". Try searching by card name instead.`
+      });
+    }
+
+    const card = await findCardInIndex(setId, parsed.cardNumber);
+    if (!card) {
+      return res.json({
+        success: true,
+        lookup: null,
+        message: `Card #${parsed.cardNumber} not found in set ${parsed.setCode}`
+      });
+    }
+
+    let pricingData = null;
+    try {
+      pricingData = await getCardPricing(setId, parsed.cardNumber, card.name);
+    } catch (pricingErr) {
+      console.error('[Vending Buy] Pricing error:', pricingErr.message);
+    }
+
+    // Save as buy lookup
+    const insertResult = await pool.query(
+      `INSERT INTO vending_lookups (raw_input, set_code, card_number, card_name, set_name, set_id, image_url, market_price, currency, ip_address, type)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'buy')
+       RETURNING id`,
+      [
+        input.trim(),
+        parsed.setCode,
+        parsed.cardNumber,
+        card.name,
+        card.set_name,
+        setId,
+        card.image_url,
+        pricingData?.marketPrice || null,
+        pricingData?.currency || 'GBP',
+        req.ip
+      ]
+    );
+
+    res.json({
+      success: true,
+      lookup: {
+        id: insertResult.rows[0].id,
+        card_name: card.name,
+        set_name: card.set_name,
+        set_id: setId,
+        card_number: parsed.cardNumber,
+        image_url: card.image_url,
+        rarity: card.rarity,
+        market_price: pricingData?.marketPrice || null,
+        currency: pricingData?.currency || 'GBP',
+      }
+    });
+
+  } catch (err) {
+    console.error('[Vending Buy] Lookup error:', err);
+    if (err.status === 429) {
+      return res.status(429).json({ error: err.message });
+    }
+    res.status(500).json({ error: 'Failed to look up card' });
+  }
+});
+
+// ADMIN: POST /api/vending/buy-lookup-card
+// Admin picks a card from name search results for buying
+router.post('/buy-lookup-card', auth, requireAdmin, async (req, res) => {
+  try {
+    const { name, set_id, local_id } = req.body;
+    if (!name || !set_id || !local_id) {
+      return res.status(400).json({ error: 'Missing card details' });
+    }
+
+    const card = await findCardInIndex(set_id, local_id);
+    if (!card) {
+      return res.json({ success: true, lookup: null, message: 'Card not found' });
+    }
+
+    let pricingData = null;
+    try {
+      pricingData = await getCardPricing(set_id, local_id, name);
+    } catch (pricingErr) {
+      console.error('[Vending Buy] Pricing error:', pricingErr.message);
+    }
+
+    const insertResult = await pool.query(
+      `INSERT INTO vending_lookups (raw_input, set_code, card_number, card_name, set_name, set_id, image_url, market_price, currency, ip_address, type)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'buy')
+       RETURNING id`,
+      [
+        `${name} (${set_id} #${local_id})`,
+        set_id,
+        local_id,
+        name,
+        card.set_name,
+        set_id,
+        card.image_url,
+        pricingData?.marketPrice || null,
+        pricingData?.currency || 'GBP',
+        req.ip
+      ]
+    );
+
+    res.json({
+      success: true,
+      lookup: {
+        id: insertResult.rows[0].id,
+        card_name: name,
+        set_name: card.set_name,
+        set_id,
+        card_number: local_id,
+        image_url: card.image_url,
+        rarity: card.rarity,
+        market_price: pricingData?.marketPrice || null,
+        currency: pricingData?.currency || 'GBP',
+      }
+    });
+
+  } catch (err) {
+    console.error('[Vending Buy] Lookup-card error:', err);
+    res.status(500).json({ error: 'Failed to look up card' });
+  }
+});
+
+// ADMIN: GET /api/vending/buys
+router.get('/buys', auth, requireAdmin, async (req, res) => {
+  try {
+    const date = req.query.date || new Date().toISOString().split('T')[0];
+    const result = await pool.query(
+      `SELECT vl.*, u.display_name as completed_by_name
+       FROM vending_lookups vl
+       LEFT JOIN users u ON vl.completed_by = u.id
+       WHERE vl.status = 'completed'
+         AND COALESCE(vl.type, 'sell') = 'buy'
+         AND vl.completed_at::date = $1
+       ORDER BY vl.completed_at DESC`,
+      [date]
+    );
+
+    const totalResult = await pool.query(
+      `SELECT COALESCE(SUM(sale_price), 0) as total_buys, COUNT(*) as buy_count
+       FROM vending_lookups
+       WHERE status = 'completed' AND COALESCE(type, 'sell') = 'buy' AND completed_at::date = $1`,
+      [date]
+    );
+
+    res.json({
+      buys: result.rows,
+      total_buys: parseFloat(totalResult.rows[0].total_buys),
+      buy_count: parseInt(totalResult.rows[0].buy_count),
+    });
+  } catch (err) {
+    console.error('[Vending] Buys error:', err);
+    res.status(500).json({ error: 'Failed to load buys' });
   }
 });
 

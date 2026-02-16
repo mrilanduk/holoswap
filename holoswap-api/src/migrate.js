@@ -143,6 +143,9 @@ const migrate = async () => {
     ALTER TABLE users ADD COLUMN IF NOT EXISTS county VARCHAR(100);
     ALTER TABLE users ADD COLUMN IF NOT EXISTS country VARCHAR(100) DEFAULT 'United Kingdom';
 
+    -- Vending: buy/sell type
+    ALTER TABLE vending_lookups ADD COLUMN IF NOT EXISTS type VARCHAR(10) DEFAULT 'sell';
+
   `);
 
   console.log('✅ Tables created:');
