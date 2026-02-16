@@ -27,10 +27,11 @@ async function requireVendorOrAdmin(req, res, next) {
 }
 
 // Helper: build vendor filter for queries
+// Admin sees only untagged (their own) lookups; vendors see only their own
 // paramStart = the next available $N in the query, alias = optional table alias (e.g. 'vl')
 function vendorFilter(req, paramStart, alias) {
-  if (req.isAdmin) return { clause: '', params: [], nextParam: paramStart };
   const col = alias ? `${alias}.vendor_id` : 'vendor_id';
+  if (req.isAdmin) return { clause: `AND ${col} IS NULL`, params: [], nextParam: paramStart };
   return {
     clause: `AND ${col} = $${paramStart}`,
     params: [req.user.id],
