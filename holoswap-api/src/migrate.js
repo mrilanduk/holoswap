@@ -178,6 +178,26 @@ const migrate = async () => {
 
     CREATE INDEX IF NOT EXISTS idx_vending_daily_summaries_date ON vending_daily_summaries(summary_date DESC);
 
+    -- Market price history for tracking trends
+    CREATE TABLE IF NOT EXISTS market_price_history (
+      id              SERIAL PRIMARY KEY,
+      set_id          VARCHAR(50) NOT NULL,
+      card_number     VARCHAR(50) NOT NULL,
+      card_name       VARCHAR(255),
+      market_price    DECIMAL(10,2),
+      last_sold_price DECIMAL(10,2),
+      last_sold_date  TIMESTAMPTZ,
+      trend_7d_pct    DECIMAL(10,2),
+      trend_30d_pct   DECIMAL(10,2),
+      snapshot_date   DATE NOT NULL DEFAULT CURRENT_DATE,
+      created_at      TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(set_id, card_number, snapshot_date)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_market_history_card ON market_price_history(set_id, card_number);
+    CREATE INDEX IF NOT EXISTS idx_market_history_date ON market_price_history(snapshot_date DESC);
+    CREATE INDEX IF NOT EXISTS idx_market_history_price ON market_price_history(market_price DESC);
+
   `);
 
   console.log('✅ Tables created:');
@@ -185,6 +205,7 @@ const migrate = async () => {
   console.log('   - users');
   console.log('   - cards');
   console.log('   - want_list');
+  console.log('   - market_price_history');
   console.log('   - submissions');
   console.log('   - binders');
   console.log('   - binder_cards');

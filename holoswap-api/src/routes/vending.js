@@ -6,7 +6,7 @@ const {
   getCached, setCache, checkRateLimit,
   convertSetIdToPokePulse, searchCatalogue, getMarketData,
   findMatchingCard, extractCardsArray, extractPricingRecords, formatPricingData,
-  analyzeBuyRecommendation
+  analyzeBuyRecommendation, savePriceHistory
 } = require('../lib/pricing');
 
 const router = Router();
@@ -637,6 +637,12 @@ router.post('/buy-lookup', auth, requireVendorOrAdmin, async (req, res) => {
     let pricingData = null;
     try {
       pricingData = await getCardPricing(setId, parsed.cardNumber, card.name);
+      // Save price snapshot to history
+      if (pricingData) {
+        savePriceHistory(setId, parsed.cardNumber, card.name, pricingData).catch(err =>
+          console.error('[Vending] Price history save failed:', err)
+        );
+      }
     } catch (pricingErr) {
       console.error('[Vending Buy] Pricing error:', pricingErr.message);
     }
@@ -709,6 +715,12 @@ router.post('/buy-lookup-card', auth, requireVendorOrAdmin, async (req, res) => 
     let pricingData = null;
     try {
       pricingData = await getCardPricing(set_id, local_id, name);
+      // Save price snapshot to history
+      if (pricingData) {
+        savePriceHistory(set_id, local_id, name, pricingData).catch(err =>
+          console.error('[Vending] Price history save failed:', err)
+        );
+      }
     } catch (pricingErr) {
       console.error('[Vending Buy] Pricing error:', pricingErr.message);
     }
@@ -990,6 +1002,132 @@ router.get('/commit-day/history', auth, requireVendorOrAdmin, async (req, res) =
   } catch (err) {
     console.error('[Vending] History error:', err);
     res.status(500).json({ error: 'Failed to load history' });
+  }
+});
+
+// ADMIN: GET /api/vending/analytics/best-movers
+// Returns cards with biggest price gains over period
+router.get('/analytics/best-movers', auth, requireVendorOrAdmin, async (req, res) => {
+  try {
+    const days = parseInt(req.query.days || '7', 10);
+    const limit = parseInt(req.query.limit || '20', 10);
+
+    // Get cards with recent snapshots and calculate % change
+    const result = await pool.query(
+      `WITH latest AS (
+        SELECT DISTINCT ON (set_id, card_number)
+          set_id, card_number, card_name, market_price, snapshot_date
+        FROM market_price_history
+        WHERE snapshot_date >= CURRENT_DATE - $1::int
+        ORDER BY set_id, card_number, snapshot_date DESC
+      ),
+      oldest AS (
+        SELECT DISTINCT ON (set_id, card_number)
+          set_id, card_number, market_price as old_price
+        FROM market_price_history
+        WHERE snapshot_date >= CURRENT_DATE - $1::int
+        ORDER BY set_id, card_number, snapshot_date ASC
+      )
+      SELECT
+        l.set_id,
+        l.card_number,
+        l.card_name,
+        o.old_price,
+        l.market_price as current_price,
+        ROUND(((l.market_price - o.old_price) / NULLIF(o.old_price, 0) * 100)::numeric, 2) as percent_change
+      FROM latest l
+      JOIN oldest o ON l.set_id = o.set_id AND l.card_number = o.card_number
+      WHERE o.old_price > 0 AND l.market_price > 0
+      ORDER BY percent_change DESC NULLS LAST
+      LIMIT $2`,
+      [days, limit]
+    );
+
+    res.json({ movers: result.rows, period_days: days });
+  } catch (err) {
+    console.error('[Vending] Best movers error:', err);
+    res.status(500).json({ error: 'Failed to load best movers' });
+  }
+});
+
+// ADMIN: GET /api/vending/analytics/price-history/:setId/:cardNumber
+// Returns price history for a specific card
+router.get('/analytics/price-history/:setId/:cardNumber', auth, requireVendorOrAdmin, async (req, res) => {
+  try {
+    const { setId, cardNumber } = req.params;
+    const days = parseInt(req.query.days || '30', 10);
+
+    const result = await pool.query(
+      `SELECT
+        snapshot_date,
+        market_price,
+        last_sold_price,
+        last_sold_date,
+        trend_7d_pct,
+        trend_30d_pct
+       FROM market_price_history
+       WHERE set_id = $1 AND card_number = $2
+         AND snapshot_date >= CURRENT_DATE - $3::int
+       ORDER BY snapshot_date ASC`,
+      [setId, cardNumber, days]
+    );
+
+    res.json({ history: result.rows });
+  } catch (err) {
+    console.error('[Vending] Price history error:', err);
+    res.status(500).json({ error: 'Failed to load price history' });
+  }
+});
+
+// ADMIN: GET /api/vending/analytics/trending
+// Returns trending cards (most looked up + price changes)
+router.get('/analytics/trending', auth, requireVendorOrAdmin, async (req, res) => {
+  try {
+    const days = parseInt(req.query.days || '7', 10);
+    const limit = parseInt(req.query.limit || '20', 10);
+
+    // Count lookups and get latest price data
+    const result = await pool.query(
+      `WITH lookup_counts AS (
+        SELECT
+          set_id,
+          card_number,
+          card_name,
+          COUNT(*) as lookup_count
+        FROM vending_lookups
+        WHERE created_at >= NOW() - ($1 || ' days')::interval
+          AND set_id IS NOT NULL
+          AND card_number IS NOT NULL
+        GROUP BY set_id, card_number, card_name
+      ),
+      latest_prices AS (
+        SELECT DISTINCT ON (set_id, card_number)
+          set_id,
+          card_number,
+          market_price,
+          trend_7d_pct
+        FROM market_price_history
+        WHERE snapshot_date >= CURRENT_DATE - $1::int
+        ORDER BY set_id, card_number, snapshot_date DESC
+      )
+      SELECT
+        lc.set_id,
+        lc.card_number,
+        lc.card_name,
+        lc.lookup_count,
+        lp.market_price,
+        lp.trend_7d_pct
+      FROM lookup_counts lc
+      LEFT JOIN latest_prices lp ON lc.set_id = lp.set_id AND lc.card_number = lp.card_number
+      ORDER BY lc.lookup_count DESC, lp.trend_7d_pct DESC NULLS LAST
+      LIMIT $2`,
+      [days, limit]
+    );
+
+    res.json({ trending: result.rows, period_days: days });
+  } catch (err) {
+    console.error('[Vending] Trending error:', err);
+    res.status(500).json({ error: 'Failed to load trending cards' });
   }
 });
 

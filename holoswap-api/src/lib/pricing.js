@@ -1,6 +1,8 @@
 // Shared PokePulse pricing functions
 // Used by both /api/pricing and /api/vending routes
 
+const pool = require('../db');
+
 // Cache management
 const catalogueCache = new Map();
 const marketDataCache = new Map();
@@ -331,6 +333,39 @@ function analyzeBuyRecommendation(pricingData) {
   };
 }
 
+// Save price snapshot to history table (upserts once per day per card)
+async function savePriceHistory(setId, cardNumber, cardName, pricingData) {
+  if (!pricingData || !setId || !cardNumber) return;
+
+  try {
+    await pool.query(
+      `INSERT INTO market_price_history
+        (set_id, card_number, card_name, market_price, last_sold_price, last_sold_date, trend_7d_pct, trend_30d_pct, snapshot_date)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_DATE)
+       ON CONFLICT (set_id, card_number, snapshot_date)
+       DO UPDATE SET
+         market_price = EXCLUDED.market_price,
+         last_sold_price = EXCLUDED.last_sold_price,
+         last_sold_date = EXCLUDED.last_sold_date,
+         trend_7d_pct = EXCLUDED.trend_7d_pct,
+         trend_30d_pct = EXCLUDED.trend_30d_pct,
+         card_name = EXCLUDED.card_name`,
+      [
+        setId,
+        cardNumber,
+        cardName,
+        pricingData.marketPrice || null,
+        pricingData.lastSoldPrice || null,
+        pricingData.lastSoldDate || null,
+        pricingData.trends?.['7day']?.percentage || null,
+        pricingData.trends?.['30day']?.percentage || null
+      ]
+    );
+  } catch (err) {
+    console.error('[Pricing] Failed to save price history:', err.message);
+  }
+}
+
 module.exports = {
   catalogueCache,
   marketDataCache,
@@ -346,5 +381,6 @@ module.exports = {
   extractCardsArray,
   extractPricingRecords,
   formatPricingData,
-  analyzeBuyRecommendation
+  analyzeBuyRecommendation,
+  savePriceHistory
 };
