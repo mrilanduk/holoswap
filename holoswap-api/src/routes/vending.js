@@ -251,7 +251,7 @@ router.post('/lookup', async (req, res) => {
     // Resolve vendor
     let vendorId = null;
     if (vendor_code) {
-      const vr = await pool.query('SELECT id FROM users WHERE vendor_code = $1 AND is_vendor = true', [vendor_code]);
+      const vr = await pool.query('SELECT id FROM users WHERE UPPER(vendor_code) = UPPER($1) AND is_vendor = true', [vendor_code]);
       if (vr.rows.length > 0) vendorId = vr.rows[0].id;
     }
 
@@ -375,7 +375,7 @@ router.post('/lookup-card', async (req, res) => {
     // Resolve vendor
     let vendorId = null;
     if (vendor_code) {
-      const vr = await pool.query('SELECT id FROM users WHERE vendor_code = $1 AND is_vendor = true', [vendor_code]);
+      const vr = await pool.query('SELECT id FROM users WHERE UPPER(vendor_code) = UPPER($1) AND is_vendor = true', [vendor_code]);
       if (vr.rows.length > 0) vendorId = vr.rows[0].id;
     }
 
@@ -462,7 +462,7 @@ router.post('/submit-basket', async (req, res) => {
 router.get('/vendor/:code', async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT display_name, vendor_code FROM users WHERE vendor_code = $1 AND is_vendor = true',
+      'SELECT display_name, vendor_code FROM users WHERE UPPER(vendor_code) = UPPER($1) AND is_vendor = true',
       [req.params.code]
     );
     if (result.rows.length === 0) {
