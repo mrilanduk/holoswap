@@ -10,17 +10,32 @@ const {
 
 const router = Router();
 
-// Admin middleware (duplicated from admin.js to keep routes self-contained)
-async function requireAdmin(req, res, next) {
+// Vendor/Admin middleware — allows both vendors and admins to access vending routes
+async function requireVendorOrAdmin(req, res, next) {
   try {
-    const result = await pool.query('SELECT is_admin FROM users WHERE id = $1', [req.user.id]);
-    if (result.rows.length === 0 || !result.rows[0].is_admin) {
-      return res.status(403).json({ error: 'Admin access required' });
+    const result = await pool.query('SELECT is_admin, is_vendor FROM users WHERE id = $1', [req.user.id]);
+    const user = result.rows[0];
+    if (!user || (!user.is_admin && !user.is_vendor)) {
+      return res.status(403).json({ error: 'Vending access required' });
     }
+    req.isAdmin = user.is_admin;
+    req.isVendor = user.is_vendor;
     next();
   } catch (err) {
     res.status(500).json({ error: 'Something went wrong' });
   }
+}
+
+// Helper: build vendor filter for queries
+// paramStart = the next available $N in the query, alias = optional table alias (e.g. 'vl')
+function vendorFilter(req, paramStart, alias) {
+  if (req.isAdmin) return { clause: '', params: [], nextParam: paramStart };
+  const col = alias ? `${alias}.vendor_id` : 'vendor_id';
+  return {
+    clause: `AND ${col} = $${paramStart}`,
+    params: [req.user.id],
+    nextParam: paramStart + 1,
+  };
 }
 
 // IP-based rate limiting for public endpoint
@@ -224,13 +239,20 @@ async function getCardPricing(setId, cardNumber, cardName) {
 // ============================================================
 router.post('/lookup', async (req, res) => {
   try {
-    const { input } = req.body;
+    const { input, vendor_code } = req.body;
     if (!input || !input.trim()) {
       return res.status(400).json({ error: 'Please enter a card ID or name' });
     }
 
     if (!checkIpRateLimit(req.ip)) {
       return res.status(429).json({ error: 'Too many lookups. Please wait a moment.' });
+    }
+
+    // Resolve vendor
+    let vendorId = null;
+    if (vendor_code) {
+      const vr = await pool.query('SELECT id FROM users WHERE vendor_code = $1 AND is_vendor = true', [vendor_code]);
+      if (vr.rows.length > 0) vendorId = vr.rows[0].id;
     }
 
     const parsed = parseCardInput(input);
@@ -293,8 +315,8 @@ router.post('/lookup', async (req, res) => {
 
     // Save lookup to database
     const insertResult = await pool.query(
-      `INSERT INTO vending_lookups (raw_input, set_code, card_number, card_name, set_name, set_id, image_url, market_price, currency, ip_address)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      `INSERT INTO vending_lookups (raw_input, set_code, card_number, card_name, set_name, set_id, image_url, market_price, currency, ip_address, vendor_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        RETURNING id`,
       [
         input.trim(),
@@ -306,7 +328,8 @@ router.post('/lookup', async (req, res) => {
         card.image_url,
         pricingData?.marketPrice || null,
         pricingData?.currency || 'GBP',
-        req.ip
+        req.ip,
+        vendorId
       ]
     );
 
@@ -340,13 +363,20 @@ router.post('/lookup', async (req, res) => {
 // Called when customer picks a card from name search results
 router.post('/lookup-card', async (req, res) => {
   try {
-    const { name, set_id, local_id } = req.body;
+    const { name, set_id, local_id, vendor_code } = req.body;
     if (!name || !set_id || !local_id) {
       return res.status(400).json({ error: 'Missing card details' });
     }
 
     if (!checkIpRateLimit(req.ip)) {
       return res.status(429).json({ error: 'Too many lookups. Please wait a moment.' });
+    }
+
+    // Resolve vendor
+    let vendorId = null;
+    if (vendor_code) {
+      const vr = await pool.query('SELECT id FROM users WHERE vendor_code = $1 AND is_vendor = true', [vendor_code]);
+      if (vr.rows.length > 0) vendorId = vr.rows[0].id;
     }
 
     const card = await findCardInIndex(set_id, local_id);
@@ -363,8 +393,8 @@ router.post('/lookup-card', async (req, res) => {
 
     // Save lookup
     const insertResult = await pool.query(
-      `INSERT INTO vending_lookups (raw_input, set_code, card_number, card_name, set_name, set_id, image_url, market_price, currency, ip_address)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      `INSERT INTO vending_lookups (raw_input, set_code, card_number, card_name, set_name, set_id, image_url, market_price, currency, ip_address, vendor_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        RETURNING id`,
       [
         `${name} (${set_id} #${local_id})`,
@@ -376,7 +406,8 @@ router.post('/lookup-card', async (req, res) => {
         card.image_url,
         pricingData?.marketPrice || null,
         pricingData?.currency || 'GBP',
-        req.ip
+        req.ip,
+        vendorId
       ]
     );
 
@@ -426,15 +457,34 @@ router.post('/submit-basket', async (req, res) => {
   }
 });
 
+// PUBLIC: GET /api/vending/vendor/:code
+// Returns vendor display name for price checker header
+router.get('/vendor/:code', async (req, res) => {
+  try {
+    const result = await pool.query(
+      'SELECT display_name, vendor_code FROM users WHERE vendor_code = $1 AND is_vendor = true',
+      [req.params.code]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Vendor not found' });
+    }
+    res.json({ vendor: result.rows[0] });
+  } catch (err) {
+    console.error('[Vending] Vendor info error:', err);
+    res.status(500).json({ error: 'Failed to load vendor info' });
+  }
+});
+
 // ============================================================
 // ADMIN: GET /api/vending/queue
 // ============================================================
-router.get('/queue', auth, requireAdmin, async (req, res) => {
+router.get('/queue', auth, requireVendorOrAdmin, async (req, res) => {
   try {
     const status = req.query.status || 'pending';
+    const vf = vendorFilter(req, 2);
     const result = await pool.query(
-      `SELECT * FROM vending_lookups WHERE status = $1 AND COALESCE(type, 'sell') = 'sell' ORDER BY created_at DESC LIMIT 50`,
-      [status]
+      `SELECT * FROM vending_lookups WHERE status = $1 AND COALESCE(type, 'sell') = 'sell' ${vf.clause} ORDER BY created_at DESC LIMIT 50`,
+      [status, ...vf.params]
     );
     res.json({ lookups: result.rows });
   } catch (err) {
@@ -444,9 +494,10 @@ router.get('/queue', auth, requireAdmin, async (req, res) => {
 });
 
 // ADMIN: PUT /api/vending/queue/:id/complete
-router.put('/queue/:id/complete', auth, requireAdmin, async (req, res) => {
+router.put('/queue/:id/complete', auth, requireVendorOrAdmin, async (req, res) => {
   try {
     const { sale_price, sale_notes, payment_method } = req.body;
+    const vf = vendorFilter(req, 6);
     const result = await pool.query(
       `UPDATE vending_lookups SET
         status = 'completed',
@@ -455,9 +506,9 @@ router.put('/queue/:id/complete', auth, requireAdmin, async (req, res) => {
         payment_method = $3,
         completed_by = $4,
         completed_at = NOW()
-       WHERE id = $5
+       WHERE id = $5 ${vf.clause}
        RETURNING *`,
-      [sale_price || null, sale_notes || null, payment_method || null, req.user.id, req.params.id]
+      [sale_price || null, sale_notes || null, payment_method || null, req.user.id, req.params.id, ...vf.params]
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Lookup not found' });
     res.json({ lookup: result.rows[0] });
@@ -468,12 +519,13 @@ router.put('/queue/:id/complete', auth, requireAdmin, async (req, res) => {
 });
 
 // ADMIN: PUT /api/vending/queue/:id/skip
-router.put('/queue/:id/skip', auth, requireAdmin, async (req, res) => {
+router.put('/queue/:id/skip', auth, requireVendorOrAdmin, async (req, res) => {
   try {
+    const vf = vendorFilter(req, 3);
     const result = await pool.query(
       `UPDATE vending_lookups SET status = 'skipped', completed_by = $1, completed_at = NOW()
-       WHERE id = $2 RETURNING *`,
-      [req.user.id, req.params.id]
+       WHERE id = $2 ${vf.clause} RETURNING *`,
+      [req.user.id, req.params.id, ...vf.params]
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Lookup not found' });
     res.json({ lookup: result.rows[0] });
@@ -484,9 +536,10 @@ router.put('/queue/:id/skip', auth, requireAdmin, async (req, res) => {
 });
 
 // ADMIN: GET /api/vending/sales
-router.get('/sales', auth, requireAdmin, async (req, res) => {
+router.get('/sales', auth, requireVendorOrAdmin, async (req, res) => {
   try {
     const date = req.query.date || new Date().toISOString().split('T')[0];
+    const vf = vendorFilter(req, 2, 'vl');
     const result = await pool.query(
       `SELECT vl.*, u.display_name as completed_by_name
        FROM vending_lookups vl
@@ -494,15 +547,17 @@ router.get('/sales', auth, requireAdmin, async (req, res) => {
        WHERE vl.status = 'completed'
          AND COALESCE(vl.type, 'sell') = 'sell'
          AND vl.completed_at::date = $1
+         ${vf.clause}
        ORDER BY vl.completed_at DESC`,
-      [date]
+      [date, ...vf.params]
     );
 
+    const vf2 = vendorFilter(req, 2);
     const totalResult = await pool.query(
       `SELECT COALESCE(SUM(sale_price), 0) as total_sales, COUNT(*) as sale_count
        FROM vending_lookups
-       WHERE status = 'completed' AND COALESCE(type, 'sell') = 'sell' AND completed_at::date = $1`,
-      [date]
+       WHERE status = 'completed' AND COALESCE(type, 'sell') = 'sell' AND completed_at::date = $1 ${vf2.clause}`,
+      [date, ...vf2.params]
     );
 
     res.json({
@@ -520,7 +575,7 @@ router.get('/sales', auth, requireAdmin, async (req, res) => {
 // ADMIN: POST /api/vending/buy-lookup
 // Admin looks up a card for buying from a customer
 // ============================================================
-router.post('/buy-lookup', auth, requireAdmin, async (req, res) => {
+router.post('/buy-lookup', auth, requireVendorOrAdmin, async (req, res) => {
   try {
     const { input } = req.body;
     if (!input || !input.trim()) {
@@ -582,10 +637,11 @@ router.post('/buy-lookup', auth, requireAdmin, async (req, res) => {
       console.error('[Vending Buy] Pricing error:', pricingErr.message);
     }
 
-    // Save as buy lookup
+    // Save as buy lookup (vendor_id = current user if they're a vendor)
+    const buyVendorId = req.isVendor ? req.user.id : null;
     const insertResult = await pool.query(
-      `INSERT INTO vending_lookups (raw_input, set_code, card_number, card_name, set_name, set_id, image_url, market_price, currency, ip_address, type)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'buy')
+      `INSERT INTO vending_lookups (raw_input, set_code, card_number, card_name, set_name, set_id, image_url, market_price, currency, ip_address, type, vendor_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'buy', $11)
        RETURNING id`,
       [
         input.trim(),
@@ -597,7 +653,8 @@ router.post('/buy-lookup', auth, requireAdmin, async (req, res) => {
         card.image_url,
         pricingData?.marketPrice || null,
         pricingData?.currency || 'GBP',
-        req.ip
+        req.ip,
+        buyVendorId
       ]
     );
 
@@ -627,7 +684,7 @@ router.post('/buy-lookup', auth, requireAdmin, async (req, res) => {
 
 // ADMIN: POST /api/vending/buy-lookup-card
 // Admin picks a card from name search results for buying
-router.post('/buy-lookup-card', auth, requireAdmin, async (req, res) => {
+router.post('/buy-lookup-card', auth, requireVendorOrAdmin, async (req, res) => {
   try {
     const { name, set_id, local_id } = req.body;
     if (!name || !set_id || !local_id) {
@@ -646,9 +703,10 @@ router.post('/buy-lookup-card', auth, requireAdmin, async (req, res) => {
       console.error('[Vending Buy] Pricing error:', pricingErr.message);
     }
 
+    const buyVendorId = req.isVendor ? req.user.id : null;
     const insertResult = await pool.query(
-      `INSERT INTO vending_lookups (raw_input, set_code, card_number, card_name, set_name, set_id, image_url, market_price, currency, ip_address, type)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'buy')
+      `INSERT INTO vending_lookups (raw_input, set_code, card_number, card_name, set_name, set_id, image_url, market_price, currency, ip_address, type, vendor_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'buy', $11)
        RETURNING id`,
       [
         `${name} (${set_id} #${local_id})`,
@@ -660,7 +718,8 @@ router.post('/buy-lookup-card', auth, requireAdmin, async (req, res) => {
         card.image_url,
         pricingData?.marketPrice || null,
         pricingData?.currency || 'GBP',
-        req.ip
+        req.ip,
+        buyVendorId
       ]
     );
 
@@ -686,9 +745,10 @@ router.post('/buy-lookup-card', auth, requireAdmin, async (req, res) => {
 });
 
 // ADMIN: GET /api/vending/buys
-router.get('/buys', auth, requireAdmin, async (req, res) => {
+router.get('/buys', auth, requireVendorOrAdmin, async (req, res) => {
   try {
     const date = req.query.date || new Date().toISOString().split('T')[0];
+    const vf = vendorFilter(req, 2, 'vl');
     const result = await pool.query(
       `SELECT vl.*, u.display_name as completed_by_name
        FROM vending_lookups vl
@@ -696,15 +756,17 @@ router.get('/buys', auth, requireAdmin, async (req, res) => {
        WHERE vl.status = 'completed'
          AND COALESCE(vl.type, 'sell') = 'buy'
          AND vl.completed_at::date = $1
+         ${vf.clause}
        ORDER BY vl.completed_at DESC`,
-      [date]
+      [date, ...vf.params]
     );
 
+    const vf2 = vendorFilter(req, 2);
     const totalResult = await pool.query(
       `SELECT COALESCE(SUM(sale_price), 0) as total_buys, COUNT(*) as buy_count
        FROM vending_lookups
-       WHERE status = 'completed' AND COALESCE(type, 'sell') = 'buy' AND completed_at::date = $1`,
-      [date]
+       WHERE status = 'completed' AND COALESCE(type, 'sell') = 'buy' AND completed_at::date = $1 ${vf2.clause}`,
+      [date, ...vf2.params]
     );
 
     res.json({
@@ -719,22 +781,24 @@ router.get('/buys', auth, requireAdmin, async (req, res) => {
 });
 
 // ADMIN: Commit day summary
-router.post('/commit-day', auth, requireAdmin, async (req, res) => {
+router.post('/commit-day', auth, requireVendorOrAdmin, async (req, res) => {
   try {
     const date = req.body.date || new Date().toISOString().split('T')[0];
     const notes = req.body.notes || null;
+    const summaryVendorId = req.isVendor ? req.user.id : null;
 
+    const vf = vendorFilter(req, 2);
     const sellResult = await pool.query(
       `SELECT COALESCE(SUM(sale_price), 0) as total_sold, COUNT(*) as cards_sold
        FROM vending_lookups
-       WHERE status = 'completed' AND COALESCE(type, 'sell') = 'sell' AND completed_at::date = $1`,
-      [date]
+       WHERE status = 'completed' AND COALESCE(type, 'sell') = 'sell' AND completed_at::date = $1 ${vf.clause}`,
+      [date, ...vf.params]
     );
     const buyResult = await pool.query(
       `SELECT COALESCE(SUM(sale_price), 0) as total_bought, COUNT(*) as cards_bought
        FROM vending_lookups
-       WHERE status = 'completed' AND COALESCE(type, 'sell') = 'buy' AND completed_at::date = $1`,
-      [date]
+       WHERE status = 'completed' AND COALESCE(type, 'sell') = 'buy' AND completed_at::date = $1 ${vf.clause}`,
+      [date, ...vf.params]
     );
 
     const totalSold = parseFloat(sellResult.rows[0].total_sold);
@@ -743,20 +807,17 @@ router.post('/commit-day', auth, requireAdmin, async (req, res) => {
     const cardsBought = parseInt(buyResult.rows[0].cards_bought);
     const netProfit = totalSold - totalBought;
 
+    // Delete existing summary for this date + vendor, then insert fresh
+    await pool.query(
+      'DELETE FROM vending_daily_summaries WHERE summary_date = $1 AND vendor_id IS NOT DISTINCT FROM $2',
+      [date, summaryVendorId]
+    );
+
     const result = await pool.query(
-      `INSERT INTO vending_daily_summaries (summary_date, total_sold, cards_sold, total_bought, cards_bought, net_profit, notes, committed_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       ON CONFLICT (summary_date) DO UPDATE SET
-         total_sold = EXCLUDED.total_sold,
-         cards_sold = EXCLUDED.cards_sold,
-         total_bought = EXCLUDED.total_bought,
-         cards_bought = EXCLUDED.cards_bought,
-         net_profit = EXCLUDED.net_profit,
-         notes = COALESCE(EXCLUDED.notes, vending_daily_summaries.notes),
-         committed_by = EXCLUDED.committed_by,
-         created_at = NOW()
+      `INSERT INTO vending_daily_summaries (summary_date, total_sold, cards_sold, total_bought, cards_bought, net_profit, notes, committed_by, vendor_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        RETURNING *`,
-      [date, totalSold, cardsSold, totalBought, cardsBought, netProfit, notes, req.user.id]
+      [date, totalSold, cardsSold, totalBought, cardsBought, netProfit, notes, req.user.id, summaryVendorId]
     );
 
     res.json({ summary: result.rows[0] });
@@ -767,12 +828,13 @@ router.post('/commit-day', auth, requireAdmin, async (req, res) => {
 });
 
 // ADMIN: Check if day is committed
-router.get('/commit-day/check', auth, requireAdmin, async (req, res) => {
+router.get('/commit-day/check', auth, requireVendorOrAdmin, async (req, res) => {
   try {
     const date = req.query.date || new Date().toISOString().split('T')[0];
+    const summaryVendorId = req.isVendor ? req.user.id : null;
     const result = await pool.query(
-      'SELECT * FROM vending_daily_summaries WHERE summary_date = $1',
-      [date]
+      'SELECT * FROM vending_daily_summaries WHERE summary_date = $1 AND vendor_id IS NOT DISTINCT FROM $2',
+      [date, summaryVendorId]
     );
     res.json({
       committed: result.rows.length > 0,
@@ -785,8 +847,20 @@ router.get('/commit-day/check', auth, requireAdmin, async (req, res) => {
 });
 
 // ADMIN: Get committed day history
-router.get('/commit-day/history', auth, requireAdmin, async (req, res) => {
+router.get('/commit-day/history', auth, requireVendorOrAdmin, async (req, res) => {
   try {
+    if (req.isVendor && !req.isAdmin) {
+      const result = await pool.query(
+        `SELECT vds.*, u.display_name as committed_by_name
+         FROM vending_daily_summaries vds
+         LEFT JOIN users u ON vds.committed_by = u.id
+         WHERE vds.vendor_id = $1
+         ORDER BY vds.summary_date DESC
+         LIMIT 90`,
+        [req.user.id]
+      );
+      return res.json({ summaries: result.rows });
+    }
     const result = await pool.query(
       `SELECT vds.*, u.display_name as committed_by_name
        FROM vending_daily_summaries vds

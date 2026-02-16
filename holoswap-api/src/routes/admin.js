@@ -71,7 +71,7 @@ router.get('/users', auth, requireAdmin, async (req, res) => {
     const countResult = await pool.query(`SELECT COUNT(*) FROM users ${where}`, params);
 
     const result = await pool.query(
-      `SELECT id, email, display_name, city, postcode, is_pro, is_admin, created_at,
+      `SELECT id, email, display_name, city, postcode, is_pro, is_admin, is_vendor, vendor_code, created_at,
               (SELECT COUNT(*) FROM cards WHERE cards.user_id = users.id) as card_count,
               (SELECT COUNT(*) FROM want_list WHERE want_list.user_id = users.id) as want_count
        FROM users ${where}
@@ -193,19 +193,21 @@ router.put('/cards/:id/status', auth, requireAdmin, async (req, res) => {
   }
 });
 
-// PUT /api/admin/users/:id — update user (make admin, pro, etc)
+// PUT /api/admin/users/:id — update user (make admin, pro, vendor, etc)
 router.put('/users/:id', auth, requireAdmin, async (req, res) => {
   try {
-    const { is_admin, is_pro } = req.body;
+    const { is_admin, is_pro, is_vendor, vendor_code } = req.body;
 
     const result = await pool.query(
       `UPDATE users SET
         is_admin = COALESCE($1, is_admin),
         is_pro = COALESCE($2, is_pro),
+        is_vendor = COALESCE($3, is_vendor),
+        vendor_code = CASE WHEN $3 = true THEN COALESCE($4, vendor_code) ELSE NULL END,
         updated_at = NOW()
-       WHERE id = $3
-       RETURNING id, email, display_name, is_admin, is_pro`,
-      [is_admin, is_pro, req.params.id]
+       WHERE id = $5
+       RETURNING id, email, display_name, is_admin, is_pro, is_vendor, vendor_code`,
+      [is_admin, is_pro, is_vendor, vendor_code || null, req.params.id]
     );
 
     if (result.rows.length === 0) {
@@ -215,6 +217,28 @@ router.put('/users/:id', auth, requireAdmin, async (req, res) => {
     res.json({ user: result.rows[0] });
   } catch (err) {
     console.error('Admin update user error:', err);
+    res.status(500).json({ error: 'Something went wrong' });
+  }
+});
+
+// GET /api/admin/vendors — vendor insights for admin
+router.get('/vendors', auth, requireAdmin, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT u.id, u.email, u.display_name, u.vendor_code, u.created_at,
+              (SELECT COUNT(*) FROM vending_lookups WHERE vendor_id = u.id) as total_lookups,
+              (SELECT COUNT(*) FROM vending_lookups WHERE vendor_id = u.id AND status = 'completed' AND COALESCE(type, 'sell') = 'sell') as total_sales_count,
+              (SELECT COALESCE(SUM(sale_price), 0) FROM vending_lookups WHERE vendor_id = u.id AND status = 'completed' AND COALESCE(type, 'sell') = 'sell') as total_sales_value,
+              (SELECT COUNT(*) FROM vending_lookups WHERE vendor_id = u.id AND status = 'completed' AND COALESCE(type, 'sell') = 'buy') as total_buys_count,
+              (SELECT COALESCE(SUM(sale_price), 0) FROM vending_lookups WHERE vendor_id = u.id AND status = 'completed' AND COALESCE(type, 'sell') = 'buy') as total_buys_value,
+              (SELECT COUNT(*) FROM vending_lookups WHERE vendor_id = u.id AND status = 'pending') as pending_count
+       FROM users u
+       WHERE u.is_vendor = true
+       ORDER BY u.created_at DESC`
+    );
+    res.json({ vendors: result.rows });
+  } catch (err) {
+    console.error('Admin vendors error:', err);
     res.status(500).json({ error: 'Something went wrong' });
   }
 });

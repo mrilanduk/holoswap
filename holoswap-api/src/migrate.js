@@ -152,6 +152,16 @@ const migrate = async () => {
     -- Vending: payment method (card/cash)
     ALTER TABLE vending_lookups ADD COLUMN IF NOT EXISTS payment_method VARCHAR(10);
 
+    -- Multi-vendor support
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS is_vendor BOOLEAN DEFAULT FALSE;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS vendor_code VARCHAR(50) UNIQUE;
+    ALTER TABLE vending_lookups ADD COLUMN IF NOT EXISTS vendor_id INTEGER REFERENCES users(id);
+    CREATE INDEX IF NOT EXISTS idx_vending_lookups_vendor ON vending_lookups(vendor_id);
+
+    -- Vendor support on daily summaries
+    ALTER TABLE vending_daily_summaries ADD COLUMN IF NOT EXISTS vendor_id INTEGER REFERENCES users(id);
+    CREATE INDEX IF NOT EXISTS idx_vending_daily_summaries_vendor ON vending_daily_summaries(vendor_id);
+
     -- Daily vending summaries (committed end-of-day snapshots)
     CREATE TABLE IF NOT EXISTS vending_daily_summaries (
       id            SERIAL PRIMARY KEY,
