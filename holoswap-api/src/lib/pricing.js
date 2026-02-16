@@ -172,14 +172,8 @@ function formatPricingData(pricingRecords, productId, cached) {
   let marketPrice = 0;
   let currency = 'GBP';
   let trendsData = null;
-
-  // Log raw record to see what fields are available
-  if (pricingRecords.length > 0) {
-    console.log('[Pricing] Sample record fields:', Object.keys(pricingRecords[0]));
-    if (pricingRecords[0].trends) {
-      console.log('[Pricing] Trends data:', JSON.stringify(pricingRecords[0].trends, null, 2));
-    }
-  }
+  let lastSoldPrice = null;
+  let lastSoldDate = null;
 
   pricingRecords.forEach(record => {
     const condition = record.condition?.toUpperCase() || 'UNKNOWN';
@@ -204,16 +198,22 @@ function formatPricingData(pricingRecords, productId, cached) {
     if (condition === 'NM') {
       marketPrice = value;
       currency = record.currency === '£' ? 'GBP' : record.currency;
+      lastSoldPrice = record.last_sold_price || null;
+      lastSoldDate = record.last_sold_date || null;
 
       if (record.trends) {
         trendsData = {
+          '1day': {
+            percentage: record.trends['1d']?.percentage_change || 0,
+            previous: record.trends['1d']?.previous_value || 0
+          },
           '7day': {
-            change: record.trends['7d']?.price_change || 0,
-            percentage: record.trends['7d']?.percentage_change || 0
+            percentage: record.trends['7d']?.percentage_change || 0,
+            previous: record.trends['7d']?.previous_value || 0
           },
           '30day': {
-            change: record.trends['30d']?.price_change || 0,
-            percentage: record.trends['30d']?.percentage_change || 0
+            percentage: record.trends['30d']?.percentage_change || 0,
+            previous: record.trends['30d']?.previous_value || 0
           }
         };
       }
@@ -226,6 +226,8 @@ function formatPricingData(pricingRecords, productId, cached) {
     currency,
     conditions,
     trends: trendsData,
+    lastSoldPrice,
+    lastSoldDate,
     lastUpdated: new Date().toISOString(),
     cached
   };
