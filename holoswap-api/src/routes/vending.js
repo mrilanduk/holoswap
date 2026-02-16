@@ -783,6 +783,41 @@ router.get('/buys', auth, requireVendorOrAdmin, async (req, res) => {
   }
 });
 
+// ADMIN: GET /api/vending/buys/stats
+// Returns buy statistics over a time period (default 30 days)
+router.get('/buys/stats', auth, requireVendorOrAdmin, async (req, res) => {
+  try {
+    const days = parseInt(req.query.days || '30', 10);
+    const vf = vendorFilter(req, 1);
+
+    // Get overall totals
+    const totalsResult = await pool.query(
+      `SELECT
+        COUNT(*) as total_count,
+        COALESCE(SUM(sale_price), 0) as total_value,
+        COALESCE(AVG(sale_price), 0) as avg_value
+       FROM vending_lookups
+       WHERE status = 'completed'
+         AND COALESCE(type, 'sell') = 'buy'
+         AND completed_at >= NOW() - $1::interval
+         ${vf.clause}`,
+      [`${days} days`, ...vf.params]
+    );
+
+    const totals = totalsResult.rows[0];
+
+    res.json({
+      period_days: days,
+      total_buys: parseInt(totals.total_count),
+      total_value: parseFloat(totals.total_value),
+      average_value: parseFloat(totals.avg_value),
+    });
+  } catch (err) {
+    console.error('[Vending] Buy stats error:', err);
+    res.status(500).json({ error: 'Failed to load buy stats' });
+  }
+});
+
 // ADMIN: Commit day summary
 router.post('/commit-day', auth, requireVendorOrAdmin, async (req, res) => {
   try {
