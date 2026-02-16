@@ -45,7 +45,7 @@ const SET_CODE_MAP = {
   // Scarlet & Violet era
   'SVI': 'sv01', 'PAL': 'sv02', 'OBF': 'sv03', 'MEW': 'sv03.5',
   'PAR': 'sv04', 'PAF': 'sv04.5', 'TEF': 'sv05', 'TWM': 'sv06',
-  'SFA': 'sv06.5', 'SSP': 'sv07', 'SCR': 'sv08', 'PRE': 'sv08.5',
+  'SFA': 'sv06.5', 'SCR': 'sv07', 'SSP': 'sv08', 'PRE': 'sv08.5',
   'JTG': 'sv09', 'DRI': 'sv10', 'SVP': 'svp', 'SVE': 'sve',
   // Pokemon TCG Pocket
   'A1': 'A1', 'A1A': 'A1a', 'A2': 'A2', 'A2A': 'A2a', 'A3': 'A3',
