@@ -146,6 +146,22 @@ const migrate = async () => {
     -- Vending: buy/sell type
     ALTER TABLE vending_lookups ADD COLUMN IF NOT EXISTS type VARCHAR(10) DEFAULT 'sell';
 
+    -- Daily vending summaries (committed end-of-day snapshots)
+    CREATE TABLE IF NOT EXISTS vending_daily_summaries (
+      id            SERIAL PRIMARY KEY,
+      summary_date  DATE UNIQUE NOT NULL,
+      total_sold    DECIMAL(10,2) NOT NULL DEFAULT 0,
+      cards_sold    INTEGER NOT NULL DEFAULT 0,
+      total_bought  DECIMAL(10,2) NOT NULL DEFAULT 0,
+      cards_bought  INTEGER NOT NULL DEFAULT 0,
+      net_profit    DECIMAL(10,2) NOT NULL DEFAULT 0,
+      notes         TEXT,
+      committed_by  INTEGER REFERENCES users(id),
+      created_at    TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_vending_daily_summaries_date ON vending_daily_summaries(summary_date DESC);
+
   `);
 
   console.log('✅ Tables created:');
@@ -157,8 +173,9 @@ const migrate = async () => {
   console.log('   - binders');
   console.log('   - binder_cards');
   console.log('   - vending_lookups');
+  console.log('   - vending_daily_summaries');
 
-  const tables = ['waitlist', 'users', 'cards', 'want_list', 'submissions', 'binders', 'binder_cards', 'vending_lookups'];
+  const tables = ['waitlist', 'users', 'cards', 'want_list', 'submissions', 'binders', 'binder_cards', 'vending_lookups', 'vending_daily_summaries'];
   console.log('\n📊 Current data:');
   for (const t of tables) {
     const r = await pool.query(`SELECT COUNT(*) FROM ${t}`);

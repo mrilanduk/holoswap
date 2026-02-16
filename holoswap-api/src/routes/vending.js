@@ -694,4 +694,86 @@ router.get('/buys', auth, requireAdmin, async (req, res) => {
   }
 });
 
+// ADMIN: Commit day summary
+router.post('/commit-day', auth, requireAdmin, async (req, res) => {
+  try {
+    const date = req.body.date || new Date().toISOString().split('T')[0];
+    const notes = req.body.notes || null;
+
+    const existing = await pool.query(
+      'SELECT id FROM vending_daily_summaries WHERE summary_date = $1',
+      [date]
+    );
+    if (existing.rows.length > 0) {
+      return res.status(409).json({ error: 'This day has already been committed' });
+    }
+
+    const sellResult = await pool.query(
+      `SELECT COALESCE(SUM(sale_price), 0) as total_sold, COUNT(*) as cards_sold
+       FROM vending_lookups
+       WHERE status = 'completed' AND COALESCE(type, 'sell') = 'sell' AND completed_at::date = $1`,
+      [date]
+    );
+    const buyResult = await pool.query(
+      `SELECT COALESCE(SUM(sale_price), 0) as total_bought, COUNT(*) as cards_bought
+       FROM vending_lookups
+       WHERE status = 'completed' AND COALESCE(type, 'sell') = 'buy' AND completed_at::date = $1`,
+      [date]
+    );
+
+    const totalSold = parseFloat(sellResult.rows[0].total_sold);
+    const cardsSold = parseInt(sellResult.rows[0].cards_sold);
+    const totalBought = parseFloat(buyResult.rows[0].total_bought);
+    const cardsBought = parseInt(buyResult.rows[0].cards_bought);
+    const netProfit = totalSold - totalBought;
+
+    const result = await pool.query(
+      `INSERT INTO vending_daily_summaries (summary_date, total_sold, cards_sold, total_bought, cards_bought, net_profit, notes, committed_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING *`,
+      [date, totalSold, cardsSold, totalBought, cardsBought, netProfit, notes, req.user.id]
+    );
+
+    res.json({ summary: result.rows[0] });
+  } catch (err) {
+    console.error('[Vending] Commit day error:', err);
+    res.status(500).json({ error: 'Failed to commit day' });
+  }
+});
+
+// ADMIN: Check if day is committed
+router.get('/commit-day/check', auth, requireAdmin, async (req, res) => {
+  try {
+    const date = req.query.date || new Date().toISOString().split('T')[0];
+    const result = await pool.query(
+      'SELECT * FROM vending_daily_summaries WHERE summary_date = $1',
+      [date]
+    );
+    res.json({
+      committed: result.rows.length > 0,
+      summary: result.rows[0] || null,
+    });
+  } catch (err) {
+    console.error('[Vending] Check commit error:', err);
+    res.status(500).json({ error: 'Failed to check commit status' });
+  }
+});
+
+// ADMIN: Get committed day history
+router.get('/commit-day/history', auth, requireAdmin, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT vds.*, u.display_name as committed_by_name
+       FROM vending_daily_summaries vds
+       LEFT JOIN users u ON vds.committed_by = u.id
+       ORDER BY vds.summary_date DESC
+       LIMIT 90`
+    );
+    res.json({ summaries: result.rows });
+  } catch (err) {
+    console.error('[Vending] History error:', err);
+    res.status(500).json({ error: 'Failed to load history' });
+  }
+});
+
 module.exports = router;
