@@ -180,6 +180,8 @@ async function getCardPricing(setId, cardNumber, cardName) {
   }
 
   const cardsArray = extractCardsArray(catalogueData);
+  console.log(`[Vending] Catalogue response keys: ${JSON.stringify(Object.keys(catalogueData || {}))}`);
+  console.log(`[Vending] Cards found: ${cardsArray ? cardsArray.length : 'null'}`);
   if (!cardsArray || cardsArray.length === 0) return null;
 
   const matchingCard = findMatchingCard(cardsArray, cardNumber);
