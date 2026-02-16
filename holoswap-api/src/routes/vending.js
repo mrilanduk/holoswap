@@ -403,6 +403,29 @@ router.post('/lookup-card', async (req, res) => {
   }
 });
 
+// PUBLIC: POST /api/vending/submit-basket
+// Groups lookup IDs under a shared basket_id
+router.post('/submit-basket', async (req, res) => {
+  try {
+    const { lookup_ids } = req.body;
+    if (!lookup_ids || !Array.isArray(lookup_ids) || lookup_ids.length === 0) {
+      return res.status(400).json({ error: 'No items to submit' });
+    }
+
+    const basketId = `basket_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+    await pool.query(
+      `UPDATE vending_lookups SET basket_id = $1 WHERE id = ANY($2) AND status = 'pending'`,
+      [basketId, lookup_ids]
+    );
+
+    res.json({ success: true, basket_id: basketId, count: lookup_ids.length });
+  } catch (err) {
+    console.error('[Vending] Submit basket error:', err);
+    res.status(500).json({ error: 'Failed to submit basket' });
+  }
+});
+
 // ============================================================
 // ADMIN: GET /api/vending/queue
 // ============================================================
