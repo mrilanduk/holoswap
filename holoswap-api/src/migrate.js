@@ -198,6 +198,25 @@ const migrate = async () => {
     CREATE INDEX IF NOT EXISTS idx_market_history_date ON market_price_history(snapshot_date DESC);
     CREATE INDEX IF NOT EXISTS idx_market_history_price ON market_price_history(market_price DESC);
 
+    -- eBay sold listings tracking
+    CREATE TABLE IF NOT EXISTS ebay_sold_listings (
+      id              SERIAL PRIMARY KEY,
+      set_id          VARCHAR(50),
+      card_number     VARCHAR(50),
+      card_name       VARCHAR(255) NOT NULL,
+      title           TEXT,
+      sold_price      DECIMAL(10,2) NOT NULL,
+      sold_date       TIMESTAMPTZ NOT NULL,
+      condition       VARCHAR(50),
+      listing_url     TEXT,
+      ebay_item_id    VARCHAR(50) UNIQUE,
+      created_at      TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_ebay_sold_card ON ebay_sold_listings(set_id, card_number);
+    CREATE INDEX IF NOT EXISTS idx_ebay_sold_date ON ebay_sold_listings(sold_date DESC);
+    CREATE INDEX IF NOT EXISTS idx_ebay_sold_name ON ebay_sold_listings(card_name);
+
   `);
 
   console.log('✅ Tables created:');
