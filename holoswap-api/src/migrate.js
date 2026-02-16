@@ -102,6 +102,27 @@ const migrate = async () => {
       UNIQUE(binder_id, card_id)
     );
 
+    -- Vending show price lookups & sales
+    CREATE TABLE IF NOT EXISTS vending_lookups (
+      id            SERIAL PRIMARY KEY,
+      raw_input     VARCHAR(255) NOT NULL,
+      set_code      VARCHAR(50),
+      card_number   VARCHAR(50),
+      card_name     VARCHAR(255),
+      set_name      VARCHAR(255),
+      set_id        VARCHAR(50),
+      image_url     TEXT,
+      market_price  DECIMAL(10,2),
+      currency      VARCHAR(10) DEFAULT 'GBP',
+      status        VARCHAR(50) DEFAULT 'pending',
+      sale_price    DECIMAL(10,2),
+      sale_notes    TEXT,
+      completed_by  INTEGER REFERENCES users(id),
+      completed_at  TIMESTAMPTZ,
+      ip_address    VARCHAR(45),
+      created_at    TIMESTAMPTZ DEFAULT NOW()
+    );
+
     -- Indexes
     CREATE INDEX IF NOT EXISTS idx_waitlist_email ON waitlist(email);
     CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
@@ -113,6 +134,8 @@ const migrate = async () => {
     CREATE INDEX IF NOT EXISTS idx_binders_user ON binders(user_id);
     CREATE INDEX IF NOT EXISTS idx_binder_cards_binder ON binder_cards(binder_id);
     CREATE INDEX IF NOT EXISTS idx_binder_cards_card ON binder_cards(card_id);
+    CREATE INDEX IF NOT EXISTS idx_vending_lookups_status ON vending_lookups(status);
+    CREATE INDEX IF NOT EXISTS idx_vending_lookups_created ON vending_lookups(created_at DESC);
 
     -- Address fields for delivery
     ALTER TABLE users ADD COLUMN IF NOT EXISTS address_line1 VARCHAR(255);
@@ -130,8 +153,9 @@ const migrate = async () => {
   console.log('   - submissions');
   console.log('   - binders');
   console.log('   - binder_cards');
+  console.log('   - vending_lookups');
 
-  const tables = ['waitlist', 'users', 'cards', 'want_list', 'submissions', 'binders', 'binder_cards'];
+  const tables = ['waitlist', 'users', 'cards', 'want_list', 'submissions', 'binders', 'binder_cards', 'vending_lookups'];
   console.log('\n📊 Current data:');
   for (const t of tables) {
     const r = await pool.query(`SELECT COUNT(*) FROM ${t}`);
