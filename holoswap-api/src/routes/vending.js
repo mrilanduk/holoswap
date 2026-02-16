@@ -671,6 +671,9 @@ router.post('/buy-lookup', auth, requireVendorOrAdmin, async (req, res) => {
 
     const recommendation = analyzeBuyRecommendation(pricingData);
 
+    // Get eBay stats if available
+    const ebayStats = await getEbaySoldStats(setId, parsed.cardNumber, card.name, 30);
+
     res.json({
       success: true,
       lookup: {
@@ -687,6 +690,7 @@ router.post('/buy-lookup', auth, requireVendorOrAdmin, async (req, res) => {
         lastSoldPrice: pricingData?.lastSoldPrice || null,
         trends: pricingData?.trends || null,
         recommendation,
+        ebayStats,
       }
     });
 
@@ -748,6 +752,9 @@ router.post('/buy-lookup-card', auth, requireVendorOrAdmin, async (req, res) => 
 
     const recommendation = analyzeBuyRecommendation(pricingData);
 
+    // Get eBay stats if available
+    const ebayStats = await getEbaySoldStats(set_id, local_id, name, 30);
+
     res.json({
       success: true,
       lookup: {
@@ -764,6 +771,7 @@ router.post('/buy-lookup-card', auth, requireVendorOrAdmin, async (req, res) => 
         lastSoldPrice: pricingData?.lastSoldPrice || null,
         trends: pricingData?.trends || null,
         recommendation,
+        ebayStats,
       }
     });
 
