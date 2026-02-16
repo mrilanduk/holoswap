@@ -168,20 +168,30 @@ async function getCardPricing(setId, cardNumber, cardName) {
   const pokePulseSetId = convertSetIdToPokePulse(setId);
   console.log(`[Vending] Converting setId: ${setId} → ${pokePulseSetId}`);
 
-  // Catalogue lookup
-  const catalogueCacheKey = `catalogue:${pokePulseSetId}:${cardName}`;
-  let catalogueData = getCached(catalogueCache, catalogueCacheKey, CATALOGUE_TTL);
+  // Try set IDs in order: converted, original TCGDex, then no set filter
+  const setIdsToTry = [pokePulseSetId];
+  if (setId !== pokePulseSetId) setIdsToTry.push(setId);
+  setIdsToTry.push(null); // fallback: name-only search
 
-  if (!catalogueData) {
-    checkRateLimit();
-    console.log(`[Vending] Catalogue cache miss: ${catalogueCacheKey}`);
-    catalogueData = await searchCatalogue(pokePulseSetId, cardName);
-    setCache(catalogueCache, catalogueCacheKey, catalogueData);
+  let cardsArray = null;
+  let catalogueData = null;
+
+  for (const trySetId of setIdsToTry) {
+    const catalogueCacheKey = `catalogue:${trySetId || 'noset'}:${cardName}`;
+    catalogueData = getCached(catalogueCache, catalogueCacheKey, CATALOGUE_TTL);
+
+    if (!catalogueData) {
+      checkRateLimit();
+      console.log(`[Vending] Catalogue search: setId=${trySetId || 'NONE'}, cardName=${cardName}`);
+      catalogueData = await searchCatalogue(trySetId, cardName);
+      setCache(catalogueCache, catalogueCacheKey, catalogueData);
+    }
+
+    cardsArray = extractCardsArray(catalogueData);
+    console.log(`[Vending] setId=${trySetId || 'NONE'} → ${cardsArray ? cardsArray.length : 0} cards`);
+    if (cardsArray && cardsArray.length > 0) break;
   }
 
-  const cardsArray = extractCardsArray(catalogueData);
-  console.log(`[Vending] Catalogue response keys: ${JSON.stringify(Object.keys(catalogueData || {}))}`);
-  console.log(`[Vending] Cards found: ${cardsArray ? cardsArray.length : 'null'}`);
   if (!cardsArray || cardsArray.length === 0) return null;
 
   const matchingCard = findMatchingCard(cardsArray, cardNumber);

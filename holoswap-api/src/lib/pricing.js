@@ -69,7 +69,7 @@ async function searchCatalogue(pokePulseSetId, cardName) {
       'X-API-Key': process.env.POKEPULSE_CATALOGUE_KEY
     },
     body: JSON.stringify({
-      setId: pokePulseSetId,
+      ...(pokePulseSetId && { setId: pokePulseSetId }),
       cardName: cardName,
       excludeGraded: true,
       limit: 10
