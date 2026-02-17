@@ -173,21 +173,25 @@ async function findCardInIndex(setId, cardNumber) {
 }
 
 // Find sets by total card count + card number (for "089/191" input with no set code)
+// The "/191" on a card means 191 regular cards — secret rares go higher.
+// So we find sets that contain a card numbered exactly = total (proving the set reaches that number)
+// AND contain the requested card number.
 async function findSetsByTotal(total, cardNumber) {
-  // Find sets where the max local_id (as integer) matches the total
   const result = await pool.query(
     `SELECT ci.*
      FROM card_index ci
-     INNER JOIN (
-       SELECT set_id, MAX(CAST(local_id AS INTEGER)) as max_id
-       FROM card_index
-       WHERE local_id ~ '^[0-9]+$'
-       GROUP BY set_id
-       HAVING MAX(CAST(local_id AS INTEGER)) = $1
-     ) s ON s.set_id = ci.set_id
-     WHERE ci.local_id = $2 OR ci.local_id = $3
+     WHERE (ci.local_id = $1 OR ci.local_id = $2)
+       AND ci.set_id IN (
+         SELECT set_id FROM card_index
+         WHERE local_id = $3 OR local_id = $4
+       )
      ORDER BY ci.set_id`,
-    [parseInt(total, 10), cardNumber, cardNumber.padStart(3, '0')]
+    [
+      cardNumber,
+      cardNumber.padStart(3, '0'),
+      total,
+      total.padStart(3, '0')
+    ]
   );
   return result.rows;
 }
