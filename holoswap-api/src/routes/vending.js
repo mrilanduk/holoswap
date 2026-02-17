@@ -1135,6 +1135,47 @@ router.get('/commit-day/history', auth, requireVendorOrAdmin, async (req, res) =
   }
 });
 
+// ADMIN: GET /api/vending/customers
+// Returns distinct customers who provided contact info
+router.get('/customers', auth, requireVendorOrAdmin, async (req, res) => {
+  try {
+    const search = req.query.search || '';
+    const vf = vendorFilter(req, search ? 2 : 1);
+
+    let searchClause = '';
+    const params = [];
+
+    if (search) {
+      searchClause = `AND (LOWER(customer_name) LIKE $1 OR LOWER(customer_email) LIKE $1 OR customer_phone LIKE $1)`;
+      params.push(`%${search.toLowerCase()}%`);
+    }
+
+    const result = await pool.query(
+      `SELECT
+        customer_name,
+        customer_email,
+        customer_phone,
+        COUNT(DISTINCT basket_id) as basket_count,
+        COUNT(*) as card_count,
+        COALESCE(SUM(CASE WHEN status = 'completed' THEN sale_price ELSE 0 END), 0) as total_spent,
+        MAX(created_at) as last_visit
+       FROM vending_lookups
+       WHERE customer_name IS NOT NULL
+         ${searchClause}
+         ${vf.clause}
+       GROUP BY customer_name, customer_email, customer_phone
+       ORDER BY last_visit DESC
+       LIMIT 100`,
+      [...params, ...vf.params]
+    );
+
+    res.json({ customers: result.rows });
+  } catch (err) {
+    console.error('[Vending] Customers error:', err);
+    res.status(500).json({ error: 'Failed to load customers' });
+  }
+});
+
 // ADMIN: GET /api/vending/analytics/best-movers
 // Returns cards with biggest price gains over period
 router.get('/analytics/best-movers', auth, requireVendorOrAdmin, async (req, res) => {
