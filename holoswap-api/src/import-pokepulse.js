@@ -1,15 +1,13 @@
-// Bulk import PokePulse catalogue data
-// Seeds the pokepulse_catalogue table by looking up cards from card_index
-// against the PokePulse catalogue API.
+// Daily PokePulse catalogue sync
+// Run once a day — picks the next uncached set and imports it.
+// Over time, builds a complete local catalogue.
 //
-// Usage: node import-pokepulse.js [setId] [--limit N]
+// Usage:
+//   node import-pokepulse.js            # Auto-pick next uncached set
+//   node import-pokepulse.js sv01       # Import a specific set
+//   node import-pokepulse.js --status   # Show cache coverage stats
 //
-// Examples:
-//   node import-pokepulse.js          # Import all sets
-//   node import-pokepulse.js sv01     # Import one set
-//   node import-pokepulse.js --limit 5  # Import first 5 sets only
-//
-// Rate limited to ~2 requests/second to be nice to PokePulse API.
+// Add to cron: 0 3 * * * cd /path/to/api && node src/import-pokepulse.js
 
 require('dotenv').config();
 const { Pool } = require('pg');
@@ -27,7 +25,6 @@ if (!API_KEY) {
   process.exit(1);
 }
 
-// Convert TCGDex set ID to PokePulse format
 function convertSetIdToPokePulse(tcgdexSetId) {
   if (tcgdexSetId.includes('.')) {
     const parts = tcgdexSetId.split('.');
@@ -51,11 +48,7 @@ async function searchCatalogue(setId, cardName) {
       limit: 20
     })
   });
-
-  if (!response.ok) {
-    throw new Error(`Catalogue API error: ${response.status}`);
-  }
-
+  if (!response.ok) throw new Error(`Catalogue API error: ${response.status}`);
   return response.json();
 }
 
@@ -94,125 +87,208 @@ async function cacheCard(card, setId) {
 
 const delay = (ms) => new Promise(r => setTimeout(r, ms));
 
-async function run() {
-  const args = process.argv.slice(2);
-  const specificSet = args.find(a => !a.startsWith('--'));
-  const limitArg = args.indexOf('--limit');
-  const setLimit = limitArg !== -1 ? parseInt(args[limitArg + 1]) : null;
+// Show cache coverage for all sets
+async function showStatus() {
+  console.log('📊 PokePulse Catalogue Cache Status\n');
 
-  console.log('🔄 PokePulse Catalogue Import\n');
+  const setsResult = await pool.query(
+    `SELECT ci.set_id, ci.set_name, COUNT(DISTINCT ci.name) as index_cards,
+       COALESCE(pp.cached, 0) as cached_cards
+     FROM card_index ci
+     LEFT JOIN (
+       SELECT set_id, COUNT(*) FILTER (WHERE material IS NULL) as cached
+       FROM pokepulse_catalogue
+       GROUP BY set_id
+     ) pp ON pp.set_id = $1
+     GROUP BY ci.set_id, ci.set_name, pp.cached
+     ORDER BY ci.set_id`,
+    ['dummy'] // placeholder — we'll fix the query
+  );
 
-  // Get existing cache stats
-  const existingStats = await pool.query('SELECT COUNT(*) as count FROM pokepulse_catalogue');
-  console.log(`📊 Existing cache: ${existingStats.rows[0].count} products\n`);
-
-  // Get sets to process
-  let setsQuery;
-  if (specificSet) {
-    setsQuery = await pool.query(
-      'SELECT DISTINCT set_id, set_name, COUNT(*) as card_count FROM card_index WHERE set_id = $1 GROUP BY set_id, set_name',
-      [specificSet]
-    );
-  } else {
-    setsQuery = await pool.query(
-      `SELECT DISTINCT set_id, set_name, COUNT(*) as card_count
+  // Better query: get all sets with their cache coverage
+  const result = await pool.query(
+    `SELECT
+       ci.set_id as tcgdex_id,
+       ci.set_name,
+       ci.card_count as index_cards,
+       COALESCE(pp.cached, 0) as cached_cards
+     FROM (
+       SELECT set_id, set_name, COUNT(DISTINCT name) as card_count
        FROM card_index
        GROUP BY set_id, set_name
-       ORDER BY set_id`
-    );
+     ) ci
+     LEFT JOIN (
+       SELECT set_id, COUNT(*) FILTER (WHERE material IS NULL) as cached
+       FROM pokepulse_catalogue
+       GROUP BY set_id
+     ) pp ON pp.set_id = (
+       CASE
+         WHEN ci.set_id LIKE '%.' || '%' THEN
+           regexp_replace(split_part(ci.set_id, '.', 1), '(\\D+)0*(\\d+)', '\\1\\2') || 'pt' || split_part(ci.set_id, '.', 2)
+         ELSE regexp_replace(ci.set_id, '(\\D+)0*(\\d+)', '\\1\\2')
+       END
+     )
+     ORDER BY COALESCE(pp.cached, 0) ASC, ci.set_id`
+  );
+
+  let totalIndex = 0;
+  let totalCached = 0;
+  let uncachedSets = 0;
+
+  for (const row of result.rows) {
+    const pct = row.index_cards > 0 ? Math.round(row.cached_cards / row.index_cards * 100) : 0;
+    const status = pct >= 80 ? '✅' : pct > 0 ? '🔶' : '❌';
+    totalIndex += parseInt(row.index_cards);
+    totalCached += parseInt(row.cached_cards);
+    if (pct < 80) uncachedSets++;
+    console.log(`  ${status} ${row.set_name} (${row.tcgdex_id}) — ${row.cached_cards}/${row.index_cards} (${pct}%)`);
   }
 
-  let sets = setsQuery.rows;
-  if (setLimit) sets = sets.slice(0, setLimit);
+  console.log(`\n════════════════════════════════════`);
+  console.log(`Total: ${totalCached}/${totalIndex} cards cached (${Math.round(totalCached / totalIndex * 100)}%)`);
+  console.log(`Sets needing import: ${uncachedSets}`);
+  console.log(`At 1 set/day, full coverage in ~${uncachedSets} days`);
+}
 
-  console.log(`📋 Processing ${sets.length} set(s)\n`);
+// Find the next set that needs caching (least cached first)
+async function findNextSet() {
+  const result = await pool.query(
+    `SELECT ci.set_id, ci.set_name, ci.card_count as index_cards,
+       COALESCE(pp.cached, 0) as cached_cards
+     FROM (
+       SELECT set_id, set_name, COUNT(DISTINCT name) as card_count
+       FROM card_index
+       GROUP BY set_id, set_name
+     ) ci
+     LEFT JOIN (
+       SELECT set_id, COUNT(*) FILTER (WHERE material IS NULL) as cached
+       FROM pokepulse_catalogue
+       GROUP BY set_id
+     ) pp ON pp.set_id = (
+       CASE
+         WHEN ci.set_id LIKE '%.' || '%' THEN
+           regexp_replace(split_part(ci.set_id, '.', 1), '(\\D+)0*(\\d+)', '\\1\\2') || 'pt' || split_part(ci.set_id, '.', 2)
+         ELSE regexp_replace(ci.set_id, '(\\D+)0*(\\d+)', '\\1\\2')
+       END
+     )
+     WHERE COALESCE(pp.cached, 0) < ci.card_count * 0.8
+     ORDER BY COALESCE(pp.cached, 0) ASC, ci.card_count DESC
+     LIMIT 1`
+  );
 
-  let totalCached = 0;
-  let totalSearched = 0;
-  let totalErrors = 0;
+  return result.rows[0] || null;
+}
+
+// Import one set
+async function importSet(tcgdexSetId) {
+  const ppSetId = convertSetIdToPokePulse(tcgdexSetId);
+
+  // Get cards from card_index
+  const cardsResult = await pool.query(
+    'SELECT DISTINCT name, local_id FROM card_index WHERE set_id = $1 ORDER BY local_id',
+    [tcgdexSetId]
+  );
+
+  const setNameResult = await pool.query(
+    'SELECT set_name FROM card_index WHERE set_id = $1 LIMIT 1',
+    [tcgdexSetId]
+  );
+  const setName = setNameResult.rows[0]?.set_name || tcgdexSetId;
+
+  // Check current cache
+  const cachedCount = await pool.query(
+    'SELECT COUNT(*) FROM pokepulse_catalogue WHERE set_id = $1 AND material IS NULL',
+    [ppSetId]
+  );
+  const already = parseInt(cachedCount.rows[0].count);
+
+  console.log(`\n📦 ${setName} (${tcgdexSetId} → ${ppSetId})`);
+  console.log(`   ${cardsResult.rows.length} unique cards, ${already} already cached\n`);
+
+  let cached = 0;
   let apiCalls = 0;
+  let errors = 0;
+  const searchedNames = new Set();
 
-  for (let i = 0; i < sets.length; i++) {
-    const set = sets[i];
-    const ppSetId = convertSetIdToPokePulse(set.set_id);
+  for (const card of cardsResult.rows) {
+    if (searchedNames.has(card.name)) continue;
+    searchedNames.add(card.name);
 
-    // Get unique card names in this set
-    const cardsResult = await pool.query(
-      'SELECT DISTINCT name, local_id FROM card_index WHERE set_id = $1 ORDER BY local_id',
-      [set.set_id]
-    );
+    try {
+      const catalogueData = await searchCatalogue(ppSetId, card.name);
+      apiCalls++;
+      const cards = extractCardsArray(catalogueData);
 
-    // Check how many we already have cached for this set
-    const cachedCount = await pool.query(
-      'SELECT COUNT(*) FROM pokepulse_catalogue WHERE set_id = $1 AND material IS NULL',
-      [ppSetId]
-    );
-    const already = parseInt(cachedCount.rows[0].count);
+      for (const c of cards) {
+        const ok = await cacheCard(c, ppSetId);
+        if (ok) cached++;
+      }
 
-    console.log(`[${i + 1}/${sets.length}] ${set.set_name} (${set.set_id} → ${ppSetId})`);
-    console.log(`   ${cardsResult.rows.length} cards in index, ${already} already cached`);
+      // Rate limit: 1 request per second
+      await delay(1000);
 
-    if (already >= cardsResult.rows.length * 0.8) {
-      console.log(`   ✅ Already mostly cached, skipping\n`);
-      continue;
-    }
-
-    let setCached = 0;
-
-    // Search by unique card names (batch approach)
-    const searchedNames = new Set();
-    for (const card of cardsResult.rows) {
-      if (searchedNames.has(card.name)) continue;
-      searchedNames.add(card.name);
-
-      try {
-        const catalogueData = await searchCatalogue(ppSetId, card.name);
-        apiCalls++;
-        const cards = extractCardsArray(catalogueData);
-
-        for (const c of cards) {
-          const success = await cacheCard(c, ppSetId);
-          if (success) setCached++;
-        }
-
-        totalSearched++;
-
-        // Rate limit: ~2 requests/second
-        await delay(500);
-
-      } catch (err) {
-        totalErrors++;
-        if (err.message.includes('429')) {
-          console.log(`   ⚠️  Rate limited. Waiting 30s...`);
-          await delay(30000);
-        }
+    } catch (err) {
+      errors++;
+      if (err.message.includes('429')) {
+        console.log(`   ⚠️  Rate limited, waiting 60s...`);
+        await delay(60000);
+      } else {
+        console.log(`   ❌ ${card.name}: ${err.message}`);
       }
     }
-
-    totalCached += setCached;
-    console.log(`   ✅ Cached ${setCached} products (${apiCalls} API calls total)\n`);
   }
+
+  console.log(`   ✅ Done — ${cached} products cached, ${apiCalls} API calls, ${errors} errors`);
+  return { cached, apiCalls, errors };
+}
+
+async function run() {
+  const args = process.argv.slice(2);
+
+  // Status mode
+  if (args.includes('--status')) {
+    await showStatus();
+    await pool.end();
+    return;
+  }
+
+  console.log('🔄 PokePulse Daily Sync\n');
+
+  // Existing cache stats
+  const stats = await pool.query(
+    `SELECT COUNT(*) as total, COUNT(DISTINCT set_id) as sets
+     FROM pokepulse_catalogue WHERE material IS NULL`
+  );
+  console.log(`📊 Cache: ${stats.rows[0].total} raw cards across ${stats.rows[0].sets} sets`);
+
+  // Specific set or auto-pick
+  const specificSet = args.find(a => !a.startsWith('--'));
+  let targetSet;
+
+  if (specificSet) {
+    targetSet = { set_id: specificSet };
+  } else {
+    targetSet = await findNextSet();
+    if (!targetSet) {
+      console.log('\n✅ All sets are cached! Nothing to do.');
+      await pool.end();
+      return;
+    }
+  }
+
+  const result = await importSet(targetSet.set_id);
 
   // Final stats
   const finalStats = await pool.query(
-    `SELECT
-      COUNT(*) as total,
-      COUNT(DISTINCT set_id) as sets,
-      COUNT(*) FILTER (WHERE material IS NULL) as raw_cards
-     FROM pokepulse_catalogue`
+    `SELECT COUNT(*) as total, COUNT(DISTINCT set_id) as sets
+     FROM pokepulse_catalogue WHERE material IS NULL`
   );
-
-  console.log('════════════════════════════════════');
-  console.log(`✅ Import complete!`);
-  console.log(`   API calls: ${apiCalls}`);
-  console.log(`   New products cached: ${totalCached}`);
-  console.log(`   Errors: ${totalErrors}`);
-  console.log(`   Total in cache: ${finalStats.rows[0].total} products (${finalStats.rows[0].sets} sets, ${finalStats.rows[0].raw_cards} raw cards)`);
+  console.log(`\n📊 Cache now: ${finalStats.rows[0].total} raw cards across ${finalStats.rows[0].sets} sets`);
 
   await pool.end();
 }
 
 run().catch(err => {
-  console.error('❌ Import failed:', err);
+  console.error('❌ Failed:', err);
   process.exit(1);
 });
