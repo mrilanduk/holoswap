@@ -198,6 +198,22 @@ const migrate = async () => {
     CREATE INDEX IF NOT EXISTS idx_market_history_date ON market_price_history(snapshot_date DESC);
     CREATE INDEX IF NOT EXISTS idx_market_history_price ON market_price_history(market_price DESC);
 
+    -- PokePulse catalogue cache (builds up over time from lookups)
+    CREATE TABLE IF NOT EXISTS pokepulse_catalogue (
+      id              SERIAL PRIMARY KEY,
+      product_id      VARCHAR(100) UNIQUE NOT NULL,
+      set_id          VARCHAR(50),
+      card_number     VARCHAR(50),
+      card_name       VARCHAR(255),
+      material        VARCHAR(50),
+      rarity          VARCHAR(100),
+      image_url       TEXT,
+      last_fetched    TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_pp_catalogue_set_card ON pokepulse_catalogue(set_id, card_number);
+    CREATE INDEX IF NOT EXISTS idx_pp_catalogue_name ON pokepulse_catalogue(card_name);
+    CREATE INDEX IF NOT EXISTS idx_pp_catalogue_product ON pokepulse_catalogue(product_id);
 
   `);
 

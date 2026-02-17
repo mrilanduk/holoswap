@@ -333,6 +333,98 @@ function analyzeBuyRecommendation(pricingData) {
   };
 }
 
+// ============================================================
+// PokePulse catalogue DB cache
+// Stores product_id mappings so we can skip catalogue API calls
+// ============================================================
+
+// Look up cached product_id from DB
+async function findCachedProduct(pokePulseSetId, cardNumber) {
+  try {
+    const result = await pool.query(
+      `SELECT product_id, card_name, card_number, image_url
+       FROM pokepulse_catalogue
+       WHERE set_id = $1 AND card_number = $2 AND material IS NULL
+       LIMIT 1`,
+      [pokePulseSetId, cardNumber]
+    );
+    if (result.rows.length > 0) {
+      console.log(`[PP Cache] HIT: ${pokePulseSetId} #${cardNumber} → ${result.rows[0].product_id}`);
+      return result.rows[0];
+    }
+    // Try with card_number starting with the number (e.g., "89" matches "89/123")
+    const fuzzy = await pool.query(
+      `SELECT product_id, card_name, card_number, image_url
+       FROM pokepulse_catalogue
+       WHERE set_id = $1 AND card_number LIKE $2 AND material IS NULL
+       LIMIT 1`,
+      [pokePulseSetId, cardNumber + '%']
+    );
+    if (fuzzy.rows.length > 0) {
+      console.log(`[PP Cache] FUZZY HIT: ${pokePulseSetId} #${cardNumber} → ${fuzzy.rows[0].product_id}`);
+      return fuzzy.rows[0];
+    }
+    console.log(`[PP Cache] MISS: ${pokePulseSetId} #${cardNumber}`);
+    return null;
+  } catch (err) {
+    console.error('[PP Cache] Lookup error:', err.message);
+    return null;
+  }
+}
+
+// Cache catalogue results to DB (upserts all cards from a search)
+async function cacheCatalogueResults(pokePulseSetId, cardsArray) {
+  if (!cardsArray || cardsArray.length === 0) return;
+
+  let cached = 0;
+  for (const card of cardsArray) {
+    if (!card.product_id) continue;
+    try {
+      await pool.query(
+        `INSERT INTO pokepulse_catalogue (product_id, set_id, card_number, card_name, material, image_url, last_fetched)
+         VALUES ($1, $2, $3, $4, $5, $6, NOW())
+         ON CONFLICT (product_id) DO UPDATE SET
+           card_name = EXCLUDED.card_name,
+           image_url = COALESCE(EXCLUDED.image_url, pokepulse_catalogue.image_url),
+           last_fetched = NOW()`,
+        [
+          card.product_id,
+          pokePulseSetId || card.set_id || null,
+          card.card_number || null,
+          card.card_name || card.name || null,
+          card.material || null,
+          card.image_url || card.image || null
+        ]
+      );
+      cached++;
+    } catch (err) {
+      // Skip duplicates / errors silently
+    }
+  }
+  if (cached > 0) {
+    console.log(`[PP Cache] Saved ${cached} products for set ${pokePulseSetId || 'unknown'}`);
+  }
+}
+
+// Get catalogue stats
+async function getCatalogueStats() {
+  try {
+    const result = await pool.query(
+      `SELECT
+        COUNT(*) as total_products,
+        COUNT(DISTINCT set_id) as total_sets,
+        COUNT(*) FILTER (WHERE material IS NULL) as raw_cards,
+        MIN(last_fetched) as oldest_entry,
+        MAX(last_fetched) as newest_entry
+       FROM pokepulse_catalogue`
+    );
+    return result.rows[0];
+  } catch (err) {
+    console.error('[PP Cache] Stats error:', err.message);
+    return null;
+  }
+}
+
 // Save price snapshot to history table (upserts once per day per card)
 async function savePriceHistory(setId, cardNumber, cardName, pricingData) {
   if (!pricingData || !setId || !cardNumber) return;
@@ -382,5 +474,8 @@ module.exports = {
   extractPricingRecords,
   formatPricingData,
   analyzeBuyRecommendation,
-  savePriceHistory
+  savePriceHistory,
+  findCachedProduct,
+  cacheCatalogueResults,
+  getCatalogueStats
 };

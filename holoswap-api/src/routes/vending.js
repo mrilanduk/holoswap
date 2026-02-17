@@ -6,7 +6,8 @@ const {
   getCached, setCache, checkRateLimit,
   convertSetIdToPokePulse, searchCatalogue, getMarketData,
   findMatchingCard, extractCardsArray, extractPricingRecords, formatPricingData,
-  analyzeBuyRecommendation, savePriceHistory
+  analyzeBuyRecommendation, savePriceHistory,
+  findCachedProduct, cacheCatalogueResults, getCatalogueStats
 } = require('../lib/pricing');
 
 const router = Router();
@@ -185,39 +186,57 @@ async function getCardPricing(setId, cardNumber, cardName) {
   const pokePulseSetId = convertSetIdToPokePulse(setId);
   console.log(`[Vending] Converting setId: ${setId} → ${pokePulseSetId}`);
 
-  // Try set IDs in order: converted, original TCGDex, then no set filter
-  const setIdsToTry = [pokePulseSetId];
-  if (setId !== pokePulseSetId) setIdsToTry.push(setId);
-  setIdsToTry.push(null); // fallback: name-only search
+  let productId = null;
 
-  let cardsArray = null;
-  let catalogueData = null;
-
-  for (const trySetId of setIdsToTry) {
-    const catalogueCacheKey = `catalogue:${trySetId || 'noset'}:${cardName}`;
-    catalogueData = getCached(catalogueCache, catalogueCacheKey, CATALOGUE_TTL);
-
-    if (!catalogueData) {
-      checkRateLimit();
-      console.log(`[Vending] Catalogue search: setId=${trySetId || 'NONE'}, cardName=${cardName}`);
-      catalogueData = await searchCatalogue(trySetId, cardName);
-      setCache(catalogueCache, catalogueCacheKey, catalogueData);
-    }
-
-    cardsArray = extractCardsArray(catalogueData);
-    console.log(`[Vending] setId=${trySetId || 'NONE'} → ${cardsArray ? cardsArray.length : 0} cards`);
-    if (cardsArray && cardsArray.length > 0) break;
+  // Step 1: Check DB cache for product_id (skips catalogue API entirely)
+  const cachedProduct = await findCachedProduct(pokePulseSetId, cardNumber);
+  if (cachedProduct) {
+    productId = cachedProduct.product_id;
+    console.log(`[Vending] DB cache hit → product_id: ${productId}`);
   }
 
-  if (!cardsArray || cardsArray.length === 0) return null;
+  // Step 2: If no cache hit, search PokePulse catalogue API
+  if (!productId) {
+    const setIdsToTry = [pokePulseSetId];
+    if (setId !== pokePulseSetId) setIdsToTry.push(setId);
+    setIdsToTry.push(null); // fallback: name-only search
 
-  const matchingCard = findMatchingCard(cardsArray, cardNumber);
-  if (!matchingCard) return null;
+    let cardsArray = null;
+    let catalogueData = null;
 
-  const productId = matchingCard.product_id;
-  console.log(`[Vending] Found product_id: ${productId}`);
+    for (const trySetId of setIdsToTry) {
+      const catalogueCacheKey = `catalogue:${trySetId || 'noset'}:${cardName}`;
+      catalogueData = getCached(catalogueCache, catalogueCacheKey, CATALOGUE_TTL);
 
-  // Market data lookup
+      if (!catalogueData) {
+        checkRateLimit();
+        console.log(`[Vending] Catalogue search: setId=${trySetId || 'NONE'}, cardName=${cardName}`);
+        catalogueData = await searchCatalogue(trySetId, cardName);
+        setCache(catalogueCache, catalogueCacheKey, catalogueData);
+      }
+
+      cardsArray = extractCardsArray(catalogueData);
+      console.log(`[Vending] setId=${trySetId || 'NONE'} → ${cardsArray ? cardsArray.length : 0} cards`);
+
+      if (cardsArray && cardsArray.length > 0) {
+        // Cache ALL results to DB for future lookups
+        cacheCatalogueResults(trySetId, cardsArray).catch(err =>
+          console.error('[Vending] Cache save error:', err.message)
+        );
+        break;
+      }
+    }
+
+    if (!cardsArray || cardsArray.length === 0) return null;
+
+    const matchingCard = findMatchingCard(cardsArray, cardNumber);
+    if (!matchingCard) return null;
+
+    productId = matchingCard.product_id;
+    console.log(`[Vending] Catalogue API → product_id: ${productId}`);
+  }
+
+  // Step 3: Get market data (always needed, short cache)
   const marketCacheKey = `market:${productId}`;
   let marketData = getCached(marketDataCache, marketCacheKey, MARKET_DATA_TTL);
   let cached = true;
@@ -1128,6 +1147,18 @@ router.get('/analytics/trending', auth, requireVendorOrAdmin, async (req, res) =
   } catch (err) {
     console.error('[Vending] Trending error:', err);
     res.status(500).json({ error: 'Failed to load trending cards' });
+  }
+});
+
+// ADMIN: GET /api/vending/catalogue/stats
+// Returns PokePulse catalogue cache statistics
+router.get('/catalogue/stats', auth, requireVendorOrAdmin, async (req, res) => {
+  try {
+    const stats = await getCatalogueStats();
+    res.json({ stats: stats || {} });
+  } catch (err) {
+    console.error('[Vending] Catalogue stats error:', err);
+    res.status(500).json({ error: 'Failed to load catalogue stats' });
   }
 });
 
