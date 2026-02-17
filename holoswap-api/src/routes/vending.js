@@ -545,24 +545,49 @@ router.post('/lookup-card', async (req, res) => {
 // Groups lookup IDs under a shared basket_id
 router.post('/submit-basket', async (req, res) => {
   try {
-    const { lookup_ids } = req.body;
+    const { lookup_ids, customer_name } = req.body;
     if (!lookup_ids || !Array.isArray(lookup_ids) || lookup_ids.length === 0) {
       return res.status(400).json({ error: 'No items to submit' });
     }
 
     const basketId = `basket_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const name = customer_name ? customer_name.trim().substring(0, 100) : null;
 
     const intIds = lookup_ids.map(id => parseInt(id, 10)).filter(id => !isNaN(id));
     const result = await pool.query(
-      `UPDATE vending_lookups SET basket_id = $1 WHERE id = ANY($2::int[]) AND status = 'pending'`,
-      [basketId, intIds]
+      `UPDATE vending_lookups SET basket_id = $1, customer_name = $2 WHERE id = ANY($3::int[]) AND status = 'pending'`,
+      [basketId, name, intIds]
     );
 
-    console.log(`[Vending] Submit basket: ${intIds.length} IDs sent, ${result.rowCount} rows updated, basket_id=${basketId}`);
+    console.log(`[Vending] Submit basket: ${intIds.length} IDs sent, ${result.rowCount} rows updated, basket_id=${basketId}, customer=${name || 'anonymous'}`);
     res.json({ success: true, basket_id: basketId, count: result.rowCount });
   } catch (err) {
     console.error('[Vending] Submit basket error:', err);
     res.status(500).json({ error: 'Failed to submit basket' });
+  }
+});
+
+// PUBLIC: POST /api/vending/basket/:basketId/contact
+// Customer optionally provides email/phone after submitting basket
+router.post('/basket/:basketId/contact', async (req, res) => {
+  try {
+    const { email, phone } = req.body;
+    const basketId = req.params.basketId;
+
+    if (!basketId || !basketId.startsWith('basket_')) {
+      return res.status(400).json({ error: 'Invalid basket ID' });
+    }
+
+    const result = await pool.query(
+      `UPDATE vending_lookups SET customer_email = $1, customer_phone = $2 WHERE basket_id = $3`,
+      [email ? email.trim().substring(0, 255) : null, phone ? phone.trim().substring(0, 50) : null, basketId]
+    );
+
+    console.log(`[Vending] Basket contact: ${basketId} → email=${email || 'none'}, phone=${phone || 'none'}, ${result.rowCount} rows updated`);
+    res.json({ success: true, updated: result.rowCount });
+  } catch (err) {
+    console.error('[Vending] Basket contact error:', err);
+    res.status(500).json({ error: 'Failed to save contact info' });
   }
 });
 

@@ -158,6 +158,11 @@ const migrate = async () => {
     ALTER TABLE vending_lookups ADD COLUMN IF NOT EXISTS vendor_id INTEGER REFERENCES users(id);
     CREATE INDEX IF NOT EXISTS idx_vending_lookups_vendor ON vending_lookups(vendor_id);
 
+    -- Customer info on baskets
+    ALTER TABLE vending_lookups ADD COLUMN IF NOT EXISTS customer_name VARCHAR(100);
+    ALTER TABLE vending_lookups ADD COLUMN IF NOT EXISTS customer_email VARCHAR(255);
+    ALTER TABLE vending_lookups ADD COLUMN IF NOT EXISTS customer_phone VARCHAR(50);
+
     -- Vendor support on daily summaries
     ALTER TABLE vending_daily_summaries ADD COLUMN IF NOT EXISTS vendor_id INTEGER REFERENCES users(id);
     CREATE INDEX IF NOT EXISTS idx_vending_daily_summaries_vendor ON vending_daily_summaries(vendor_id);
