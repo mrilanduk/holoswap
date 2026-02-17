@@ -8,7 +8,6 @@ const {
   findMatchingCard, extractCardsArray, extractPricingRecords, formatPricingData,
   analyzeBuyRecommendation, savePriceHistory
 } = require('../lib/pricing');
-const { trackCardOnEbay, getEbaySoldStats } = require('../lib/ebay');
 
 const router = Router();
 
@@ -671,9 +670,6 @@ router.post('/buy-lookup', auth, requireVendorOrAdmin, async (req, res) => {
 
     const recommendation = analyzeBuyRecommendation(pricingData);
 
-    // Get eBay stats if available
-    const ebayStats = await getEbaySoldStats(setId, parsed.cardNumber, card.name, 30);
-
     res.json({
       success: true,
       lookup: {
@@ -690,7 +686,6 @@ router.post('/buy-lookup', auth, requireVendorOrAdmin, async (req, res) => {
         lastSoldPrice: pricingData?.lastSoldPrice || null,
         trends: pricingData?.trends || null,
         recommendation,
-        ebayStats,
       }
     });
 
@@ -752,9 +747,6 @@ router.post('/buy-lookup-card', auth, requireVendorOrAdmin, async (req, res) => 
 
     const recommendation = analyzeBuyRecommendation(pricingData);
 
-    // Get eBay stats if available
-    const ebayStats = await getEbaySoldStats(set_id, local_id, name, 30);
-
     res.json({
       success: true,
       lookup: {
@@ -771,7 +763,6 @@ router.post('/buy-lookup-card', auth, requireVendorOrAdmin, async (req, res) => 
         lastSoldPrice: pricingData?.lastSoldPrice || null,
         trends: pricingData?.trends || null,
         recommendation,
-        ebayStats,
       }
     });
 
@@ -1137,47 +1128,6 @@ router.get('/analytics/trending', auth, requireVendorOrAdmin, async (req, res) =
   } catch (err) {
     console.error('[Vending] Trending error:', err);
     res.status(500).json({ error: 'Failed to load trending cards' });
-  }
-});
-
-// ADMIN: POST /api/vending/ebay-track
-// Fetch and save eBay sold data for a card
-router.post('/ebay-track', auth, requireVendorOrAdmin, async (req, res) => {
-  try {
-    const { set_id, card_number, card_name, set_name } = req.body;
-    if (!card_name) {
-      return res.status(400).json({ error: 'Card name required' });
-    }
-
-    const result = await trackCardOnEbay(set_id, card_number, card_name, set_name);
-    res.json({
-      success: true,
-      found: result.total_found,
-      saved: result.saved,
-      duplicates: result.duplicates
-    });
-  } catch (err) {
-    console.error('[Vending] eBay track error:', err);
-    res.status(500).json({ error: 'Failed to fetch eBay data' });
-  }
-});
-
-// ADMIN: GET /api/vending/ebay-stats/:setId/:cardNumber
-// Get eBay sold statistics for a card
-router.get('/ebay-stats/:setId/:cardNumber', auth, requireVendorOrAdmin, async (req, res) => {
-  try {
-    const { setId, cardNumber } = req.params;
-    const { card_name, days } = req.query;
-
-    if (!card_name) {
-      return res.status(400).json({ error: 'card_name query parameter required' });
-    }
-
-    const stats = await getEbaySoldStats(setId, cardNumber, card_name, parseInt(days || '30'));
-    res.json({ stats });
-  } catch (err) {
-    console.error('[Vending] eBay stats error:', err);
-    res.status(500).json({ error: 'Failed to load eBay stats' });
   }
 });
 
