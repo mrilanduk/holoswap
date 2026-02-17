@@ -617,7 +617,7 @@ router.get('/queue', auth, requireVendorOrAdmin, async (req, res) => {
     const status = req.query.status || 'pending';
     const vf = vendorFilter(req, 2);
     const result = await pool.query(
-      `SELECT * FROM vending_lookups WHERE status = $1 AND COALESCE(type, 'sell') = 'sell' ${vf.clause} ORDER BY created_at DESC LIMIT 50`,
+      `SELECT * FROM vending_lookups WHERE status = $1 AND COALESCE(type, 'sell') = 'sell' AND basket_id IS NOT NULL ${vf.clause} ORDER BY created_at DESC LIMIT 50`,
       [status, ...vf.params]
     );
     res.json({ lookups: result.rows });
