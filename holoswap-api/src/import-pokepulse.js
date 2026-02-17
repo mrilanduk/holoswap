@@ -6,6 +6,7 @@
 //   node import-pokepulse.js            # Auto-pick next uncached set
 //   node import-pokepulse.js sv01       # Import a specific set
 //   node import-pokepulse.js --status   # Show cache coverage stats
+//   node import-pokepulse.js --sets     # List available PokePulse sets
 //
 // Add to cron: 0 3 * * * cd /path/to/api && node src/import-pokepulse.js
 
@@ -17,7 +18,8 @@ const pool = new Pool({
   ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : false,
 });
 
-const CATALOGUE_URL = 'https://catalogueservicev2-production.up.railway.app/api/cards/search';
+const BASE_URL = 'https://catalogueservicev2-production.up.railway.app/api';
+const CATALOGUE_URL = `${BASE_URL}/cards/search`;
 const API_KEY = process.env.POKEPULSE_CATALOGUE_KEY;
 
 if (!API_KEY) {
@@ -87,25 +89,107 @@ async function cacheCard(card, setId) {
 
 const delay = (ms) => new Promise(r => setTimeout(r, ms));
 
+// Fetch available sets from PokePulse
+async function fetchPokePulseSets() {
+  const headers = { 'Content-Type': 'application/json', 'X-API-Key': API_KEY };
+
+  // Try common endpoint patterns
+  const endpoints = [
+    `${BASE_URL}/sets`,
+    `${BASE_URL}/cards/sets`,
+    `${BASE_URL}/catalogue/sets`,
+  ];
+
+  for (const url of endpoints) {
+    try {
+      const res = await fetch(url, { headers });
+      if (res.ok) {
+        const data = await res.json();
+        return { url, data };
+      }
+    } catch { /* try next */ }
+  }
+
+  // Fallback: search with no filters to see what set IDs exist in the catalogue
+  console.log('   No sets endpoint found, probing catalogue search...\n');
+  try {
+    const res = await fetch(CATALOGUE_URL, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ limit: 100, excludeGraded: true })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return { url: CATALOGUE_URL, data, isSearchFallback: true };
+    }
+  } catch { /* ignore */ }
+
+  return null;
+}
+
+async function showSets() {
+  console.log('🔍 Fetching PokePulse sets...\n');
+
+  const result = await fetchPokePulseSets();
+  if (!result) {
+    console.log('❌ Could not fetch sets from PokePulse');
+    return;
+  }
+
+  console.log(`   Source: ${result.url}\n`);
+
+  if (result.isSearchFallback) {
+    // Extract unique set IDs from search results
+    const cards = extractCardsArray(result.data);
+    if (cards.length === 0) {
+      console.log('   No cards returned from search');
+      console.log(`   Raw response keys: ${JSON.stringify(Object.keys(result.data))}`);
+      console.log(`   Raw (200 chars): ${JSON.stringify(result.data).substring(0, 200)}`);
+      return;
+    }
+    const sets = new Map();
+    for (const card of cards) {
+      const sid = card.set_id || card.setId || 'unknown';
+      if (!sets.has(sid)) {
+        sets.set(sid, { name: card.set_name || card.setName || '', count: 0 });
+      }
+      sets.get(sid).count++;
+    }
+    console.log(`   Found ${sets.size} sets from ${cards.length} sample cards:\n`);
+    for (const [id, info] of [...sets.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+      console.log(`   ${id.padEnd(15)} ${info.name} (${info.count} sample cards)`);
+    }
+    console.log(`\n   ⚠️  This is from a limited sample — more sets likely exist`);
+    console.log(`   First card keys: ${JSON.stringify(Object.keys(cards[0]))}`);
+  } else {
+    // Direct sets endpoint response
+    const data = result.data;
+    console.log(`   Response keys: ${JSON.stringify(Object.keys(data))}`);
+    console.log(`   Raw (500 chars): ${JSON.stringify(data).substring(0, 500)}`);
+
+    // Try to extract set list from common shapes
+    const sets = Array.isArray(data) ? data
+      : data.sets ? data.sets
+      : data.data ? data.data
+      : data.results ? data.results
+      : null;
+
+    if (sets && Array.isArray(sets)) {
+      console.log(`\n   ${sets.length} sets found:\n`);
+      for (const s of sets) {
+        const id = s.set_id || s.setId || s.id || '?';
+        const name = s.set_name || s.setName || s.name || '';
+        const count = s.card_count || s.cardCount || s.total || '';
+        console.log(`   ${String(id).padEnd(15)} ${name}${count ? ` (${count} cards)` : ''}`);
+      }
+    }
+  }
+}
+
 // Show cache coverage for all sets
 async function showStatus() {
   console.log('📊 PokePulse Catalogue Cache Status\n');
 
-  const setsResult = await pool.query(
-    `SELECT ci.set_id, ci.set_name, COUNT(DISTINCT ci.name) as index_cards,
-       COALESCE(pp.cached, 0) as cached_cards
-     FROM card_index ci
-     LEFT JOIN (
-       SELECT set_id, COUNT(*) FILTER (WHERE material IS NULL) as cached
-       FROM pokepulse_catalogue
-       GROUP BY set_id
-     ) pp ON pp.set_id = $1
-     GROUP BY ci.set_id, ci.set_name, pp.cached
-     ORDER BY ci.set_id`,
-    ['dummy'] // placeholder — we'll fix the query
-  );
-
-  // Better query: get all sets with their cache coverage
   const result = await pool.query(
     `SELECT
        ci.set_id as tcgdex_id,
@@ -150,11 +234,19 @@ async function showStatus() {
   console.log(`At 1 set/day, full coverage in ~${uncachedSets} days`);
 }
 
-// Find the next set that needs caching (least cached first)
+// Find the next set that needs caching
+// Prioritises newer sets (SV > SWSH > SM > XY > base) and skips sets marked as unsupported
 async function findNextSet() {
   const result = await pool.query(
     `SELECT ci.set_id, ci.set_name, ci.card_count as index_cards,
-       COALESCE(pp.cached, 0) as cached_cards
+       COALESCE(pp.cached, 0) as cached_cards,
+       CASE
+         WHEN ci.set_id LIKE 'sv%' THEN 1
+         WHEN ci.set_id LIKE 'swsh%' THEN 2
+         WHEN ci.set_id LIKE 'sm%' THEN 3
+         WHEN ci.set_id LIKE 'xy%' THEN 4
+         ELSE 5
+       END as era_priority
      FROM (
        SELECT set_id, set_name, COUNT(DISTINCT name) as card_count
        FROM card_index
@@ -172,7 +264,17 @@ async function findNextSet() {
        END
      )
      WHERE COALESCE(pp.cached, 0) < ci.card_count * 0.8
-     ORDER BY COALESCE(pp.cached, 0) ASC, ci.card_count DESC
+       AND NOT EXISTS (
+         SELECT 1 FROM pokepulse_catalogue sk
+         WHERE sk.set_id = (
+           CASE
+             WHEN ci.set_id LIKE '%.' || '%' THEN
+               regexp_replace(split_part(ci.set_id, '.', 1), '(\\D+)0*(\\d+)', '\\1\\2') || 'pt' || split_part(ci.set_id, '.', 2)
+             ELSE regexp_replace(ci.set_id, '(\\D+)0*(\\d+)', '\\1\\2')
+           END
+         ) AND sk.product_id LIKE 'SKIP_%'
+       )
+     ORDER BY era_priority ASC, COALESCE(pp.cached, 0) ASC, ci.card_count DESC
      LIMIT 1`
   );
 
@@ -208,6 +310,7 @@ async function importSet(tcgdexSetId) {
   let cached = 0;
   let apiCalls = 0;
   let errors = 0;
+  let emptyResponses = 0;
   const searchedNames = new Set();
 
   const totalNames = new Set(cardsResult.rows.map(c => c.name)).size;
@@ -223,13 +326,28 @@ async function importSet(tcgdexSetId) {
       apiCalls++;
       const cards = extractCardsArray(catalogueData);
 
+      // Debug: show raw response shape for the first card
+      if (searchedNames.size === 1) {
+        console.log(`   🔍 Debug — API response keys: ${JSON.stringify(Object.keys(catalogueData))}`);
+        console.log(`   🔍 Debug — ${cards.length} cards returned`);
+        if (cards.length > 0) {
+          console.log(`   🔍 Debug — First card keys: ${JSON.stringify(Object.keys(cards[0]))}`);
+          console.log(`   🔍 Debug — First card product_id: ${cards[0].product_id || 'MISSING'}`);
+        } else {
+          console.log(`   🔍 Debug — Raw response (first 200 chars): ${JSON.stringify(catalogueData).substring(0, 200)}`);
+        }
+        console.log('');
+      }
+
+      if (cards.length === 0) emptyResponses++;
+
       let batchCached = 0;
       for (const c of cards) {
         const ok = await cacheCard(c, ppSetId);
         if (ok) { cached++; batchCached++; }
       }
 
-      process.stdout.write(`   ${progress} ${card.name} — ${batchCached} cached\r`);
+      process.stdout.write(`   ${progress} ${card.name} — ${batchCached} cached (${cards.length} results)\r`);
 
       // Rate limit: 1 request per second
       await delay(1000);
@@ -247,11 +365,35 @@ async function importSet(tcgdexSetId) {
   }
 
   console.log(`\n   ✅ Done — ${cached} products cached, ${apiCalls} API calls, ${errors} errors`);
+  if (emptyResponses > 0) {
+    console.log(`   ⚠️  ${emptyResponses}/${apiCalls} calls returned no results — PokePulse may not cover set "${ppSetId}"`);
+  }
+
+  // If zero products cached after trying, mark set as unsupported so auto-pick skips it
+  if (cached === 0 && apiCalls >= 5) {
+    try {
+      await pool.query(
+        `INSERT INTO pokepulse_catalogue (product_id, set_id, card_name, last_fetched)
+         VALUES ($1, $2, 'UNSUPPORTED_SET', NOW())
+         ON CONFLICT (product_id) DO NOTHING`,
+        [`SKIP_${ppSetId}`, ppSetId]
+      );
+      console.log(`   🚫 Marked "${ppSetId}" as unsupported — will be skipped in auto-pick`);
+    } catch { /* ignore */ }
+  }
+
   return { cached, apiCalls, errors };
 }
 
 async function run() {
   const args = process.argv.slice(2);
+
+  // Sets mode — list available PokePulse sets
+  if (args.includes('--sets')) {
+    await showSets();
+    await pool.end();
+    return;
+  }
 
   // Status mode
   if (args.includes('--status')) {

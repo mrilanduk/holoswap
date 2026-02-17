@@ -172,6 +172,26 @@ async function findCardInIndex(setId, cardNumber) {
   return null;
 }
 
+// Find sets by total card count + card number (for "089/191" input with no set code)
+async function findSetsByTotal(total, cardNumber) {
+  // Find sets where the max local_id (as integer) matches the total
+  const result = await pool.query(
+    `SELECT ci.*
+     FROM card_index ci
+     INNER JOIN (
+       SELECT set_id, MAX(CAST(local_id AS INTEGER)) as max_id
+       FROM card_index
+       WHERE local_id ~ '^[0-9]+$'
+       GROUP BY set_id
+       HAVING MAX(CAST(local_id AS INTEGER)) = $1
+     ) s ON s.set_id = ci.set_id
+     WHERE ci.local_id = $2 OR ci.local_id = $3
+     ORDER BY ci.set_id`,
+    [parseInt(total, 10), cardNumber, cardNumber.padStart(3, '0')]
+  );
+  return result.rows;
+}
+
 // Search card_index by name
 async function searchCardsByName(query) {
   const result = await pool.query(
@@ -298,12 +318,74 @@ router.post('/lookup', async (req, res) => {
       });
     }
 
-    // Number-only mode (no set code)
+    // Number-only mode (no set code) — use total to identify the set
     if (parsed.type === 'number_only') {
+      const possibleSets = await findSetsByTotal(parsed.total, parsed.cardNumber);
+
+      if (possibleSets.length === 0) {
+        return res.json({
+          success: true,
+          results: [],
+          message: `Couldn't identify the set from "${input}". Try including the set code (e.g. SVI ${parsed.cardNumber}/${parsed.total}).`
+        });
+      }
+
+      // If exactly one match, go straight to pricing
+      if (possibleSets.length === 1) {
+        const match = possibleSets[0];
+        let pricingData = null;
+        try {
+          pricingData = await getCardPricing(match.set_id, parsed.cardNumber, match.name);
+        } catch (pricingErr) {
+          console.error('[Vending] Pricing error:', pricingErr.message);
+        }
+
+        const insertResult = await pool.query(
+          `INSERT INTO vending_lookups (raw_input, set_code, card_number, card_name, set_name, set_id, image_url, market_price, currency, ip_address, vendor_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+           RETURNING id`,
+          [
+            input.trim(),
+            null,
+            parsed.cardNumber,
+            match.name,
+            match.set_name,
+            match.set_id,
+            match.image_url,
+            pricingData?.marketPrice || null,
+            pricingData?.currency || 'GBP',
+            req.ip,
+            vendorId
+          ]
+        );
+
+        return res.json({
+          success: true,
+          lookup: {
+            id: insertResult.rows[0].id,
+            name: match.name,
+            set_id: match.set_id,
+            set_name: match.set_name,
+            card_number: parsed.cardNumber,
+            image_url: match.image_url,
+            rarity: match.rarity,
+            pricing: pricingData,
+          }
+        });
+      }
+
+      // Multiple matches — return options for user to pick
       return res.json({
         success: true,
-        results: [],
-        message: 'Please include a set code (e.g. SVI 089/123)'
+        results: possibleSets.map(c => ({
+          name: c.name,
+          set_id: c.set_id,
+          set_name: c.set_name,
+          local_id: c.local_id,
+          image_url: c.image_url,
+          rarity: c.rarity,
+        })),
+        message: `Found ${possibleSets.length} possible matches for #${parsed.cardNumber}/${parsed.total}. Please select one.`
       });
     }
 
