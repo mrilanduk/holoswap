@@ -210,24 +210,32 @@ async function importSet(tcgdexSetId) {
   let errors = 0;
   const searchedNames = new Set();
 
+  const totalNames = new Set(cardsResult.rows.map(c => c.name)).size;
+
   for (const card of cardsResult.rows) {
     if (searchedNames.has(card.name)) continue;
     searchedNames.add(card.name);
+
+    const progress = `[${searchedNames.size}/${totalNames}]`;
 
     try {
       const catalogueData = await searchCatalogue(ppSetId, card.name);
       apiCalls++;
       const cards = extractCardsArray(catalogueData);
 
+      let batchCached = 0;
       for (const c of cards) {
         const ok = await cacheCard(c, ppSetId);
-        if (ok) cached++;
+        if (ok) { cached++; batchCached++; }
       }
+
+      process.stdout.write(`   ${progress} ${card.name} — ${batchCached} cached\r`);
 
       // Rate limit: 1 request per second
       await delay(1000);
 
     } catch (err) {
+      process.stdout.write(`   ${progress} ${card.name} — ERROR\r`);
       errors++;
       if (err.message.includes('429')) {
         console.log(`   ⚠️  Rate limited, waiting 60s...`);
@@ -238,7 +246,7 @@ async function importSet(tcgdexSetId) {
     }
   }
 
-  console.log(`   ✅ Done — ${cached} products cached, ${apiCalls} API calls, ${errors} errors`);
+  console.log(`\n   ✅ Done — ${cached} products cached, ${apiCalls} API calls, ${errors} errors`);
   return { cached, apiCalls, errors };
 }
 
