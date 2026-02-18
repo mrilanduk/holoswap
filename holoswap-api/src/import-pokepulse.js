@@ -7,6 +7,7 @@
 //   node import-pokepulse.js sv01       # Import a specific set
 //   node import-pokepulse.js --status   # Show cache coverage stats
 //   node import-pokepulse.js --sets     # List available PokePulse sets
+//   node import-pokepulse.js --discover  # Discover all PokePulse set IDs (pages full catalogue)
 //
 // Add to cron: 0 3 * * * cd /path/to/api && node src/import-pokepulse.js
 
@@ -125,6 +126,61 @@ async function fetchPokePulseSets() {
   } catch { /* ignore */ }
 
   return null;
+}
+
+// Discover ALL set IDs by paging through the full PokePulse catalogue
+async function discoverSets() {
+  console.log('🔍 Discovering all PokePulse set IDs...\n');
+  const allSets = new Map();
+  let page = 1;
+  const pageSize = 1000;
+  let totalPages = 1;
+
+  while (page <= totalPages) {
+    try {
+      const res = await fetch(CATALOGUE_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-API-Key': API_KEY },
+        body: JSON.stringify({ page, page_size: pageSize }),
+      });
+      if (!res.ok) throw new Error(`API error: ${res.status}`);
+      const data = await res.json();
+
+      if (page === 1 && data.pagination) {
+        totalPages = data.pagination.total_pages || Math.ceil((data.pagination.total || 0) / pageSize);
+        console.log(`   ${data.pagination.total || '?'} total cards, ${totalPages} pages\n`);
+      }
+
+      const cards = extractCardsArray(data);
+      for (const c of cards) {
+        const sid = c.set_id || 'unknown';
+        if (!allSets.has(sid)) {
+          allSets.set(sid, { name: c.set_name || '', count: 0 });
+        }
+        allSets.get(sid).count++;
+      }
+
+      process.stdout.write(`   Page ${page}/${totalPages} — ${allSets.size} sets found so far\r`);
+      page++;
+      await delay(500);
+    } catch (err) {
+      console.error(`\n   ❌ Page ${page} error: ${err.message}`);
+      if (err.message.includes('429')) {
+        console.log('   Waiting 60s for rate limit...');
+        await delay(60000);
+      } else {
+        page++;
+      }
+    }
+  }
+
+  console.log(`\n\n   ✅ Found ${allSets.size} sets:\n`);
+  const sorted = [...allSets.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  for (const [id, info] of sorted) {
+    console.log(`   ${id.padEnd(20)} ${info.name.padEnd(35)} (${info.count} cards)`);
+  }
+
+  return sorted.map(([id]) => id);
 }
 
 async function showSets() {
@@ -387,6 +443,13 @@ async function importSet(tcgdexSetId) {
 
 async function run() {
   const args = process.argv.slice(2);
+
+  // Discover mode — page through full catalogue to find all set IDs
+  if (args.includes('--discover')) {
+    await discoverSets();
+    await pool.end();
+    return;
+  }
 
   // Sets mode — list available PokePulse sets
   if (args.includes('--sets')) {
