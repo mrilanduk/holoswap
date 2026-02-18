@@ -53,6 +53,7 @@ function checkRateLimit() {
 // sv03.5 → sv3pt5, me02.5 → me2pt5, sv01 → sv1
 const POKEPULSE_SET_OVERRIDES = {
   'me01': 'm1',
+  'sv10.5w': 'rsv10pt5',
 };
 
 function convertSetIdToPokePulse(tcgdexSetId) {
