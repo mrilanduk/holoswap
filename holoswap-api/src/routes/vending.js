@@ -347,28 +347,30 @@ async function getSlabPricing(setId, cardNumber, cardName) {
       const cardsArray = extractCardsArray(catalogueData);
 
       if (cardsArray && cardsArray.length > 0) {
-        console.log(`[Slab] Catalogue returned ${cardsArray.length} items. Sample:`, JSON.stringify(cardsArray.slice(0, 3).map(c => ({ product_id: c.product_id, card_number: c.card_number, material: c.material, grade: c.grade }))));
-
         // Cache everything (raw + graded)
         cacheCatalogueResults(pokePulseSetId, cardsArray).catch(err =>
           console.error('[Slab] Cache save error:', err.message)
         );
 
-        // Filter to grade 10 from target companies matching our card number
-        gradedProducts = cardsArray.filter(c => {
-          if (!c.grade || !c.card_number || !matchCardNumber(c.card_number, cardNumber)) return false;
-          const info = parseGradeInfo(c.product_id);
-          return info && info.grade === SLAB_GRADE && SLAB_COMPANIES.includes(info.company);
-        });
+        // Pre-filter to matching card number
+        gradedProducts = cardsArray.filter(c =>
+          c.card_number && matchCardNumber(c.card_number, cardNumber)
+        );
       }
     }
+
+    // Always filter to target companies + grade 10 only
+    gradedProducts = gradedProducts.filter(p => {
+      const info = parseGradeInfo(p.product_id);
+      return info && info.grade === SLAB_GRADE && SLAB_COMPANIES.includes(info.company);
+    });
 
     if (gradedProducts.length === 0) {
       console.log(`[Slab] No graded products found for ${cardName} #${cardNumber}`);
       return [];
     }
 
-    console.log(`[Slab] Found ${gradedProducts.length} graded variants (grade 10 only)`);
+    console.log(`[Slab] Found ${gradedProducts.length} grade-10 variants: ${gradedProducts.map(p => parseGradeInfo(p.product_id)?.company).join(', ')}`);
 
     // Get market data for each company's grade 10
     const slabs = [];
