@@ -314,6 +314,20 @@ async function getCardPricing(setId, cardNumber, cardName) {
 }
 
 // Get slab/graded pricing for a card (PSA, CGC, BGS)
+// Parse grading company and grade from product_id
+// Format: card:setId|cardNumber|material|...|COMPANY|grade
+function parseGradeLabel(productId) {
+  const parts = productId.split('|');
+  if (parts.length >= 6) {
+    const company = parts[parts.length - 2]; // e.g. PSA, CGC, BGS, ACE, GETGRADED
+    const grade = parts[parts.length - 1];    // e.g. 10, 9.5
+    if (company && grade && company !== 'null') {
+      return `${company} ${grade}`;
+    }
+  }
+  return null;
+}
+
 async function getSlabPricing(setId, cardNumber, cardName) {
   try {
     const ppRow = await pool.query('SELECT pokepulse_set_id FROM card_index WHERE set_id = $1 AND pokepulse_set_id IS NOT NULL LIMIT 1', [setId]);
@@ -325,22 +339,21 @@ async function getSlabPricing(setId, cardNumber, cardName) {
     // Step 2: If no cache, search PokePulse catalogue (includes graded)
     if (gradedProducts.length === 0) {
       checkRateLimit();
-      console.log(`[Slab] Catalogue search: setId=${pokePulseSetId}, cardName=${cardName}`);
-      const catalogueData = await searchCatalogueGraded(pokePulseSetId, cardName);
+      console.log(`[Slab] Catalogue search: setId=${pokePulseSetId}, cardName=${cardName}, cardNumber=${cardNumber}`);
+      const catalogueData = await searchCatalogueGraded(pokePulseSetId, cardName, cardNumber);
       const cardsArray = extractCardsArray(catalogueData);
 
       if (cardsArray && cardsArray.length > 0) {
-        // Debug: log first 3 items to see the structure
-        console.log(`[Slab] Catalogue returned ${cardsArray.length} items. Sample:`, JSON.stringify(cardsArray.slice(0, 3).map(c => ({ product_id: c.product_id, card_number: c.card_number, material: c.material, grade: c.grade, variant: c.variant }))));
+        console.log(`[Slab] Catalogue returned ${cardsArray.length} items. Sample:`, JSON.stringify(cardsArray.slice(0, 3).map(c => ({ product_id: c.product_id, card_number: c.card_number, material: c.material, grade: c.grade }))));
 
         // Cache everything (raw + graded)
         cacheCatalogueResults(pokePulseSetId, cardsArray).catch(err =>
           console.error('[Slab] Cache save error:', err.message)
         );
 
-        // Filter to graded cards matching our card number
+        // Filter to graded cards matching our card number (must have grade field)
         gradedProducts = cardsArray.filter(c =>
-          c.material && c.card_number && matchCardNumber(c.card_number, cardNumber)
+          c.grade && c.card_number && matchCardNumber(c.card_number, cardNumber)
         );
       }
     }
@@ -352,11 +365,19 @@ async function getSlabPricing(setId, cardNumber, cardName) {
 
     console.log(`[Slab] Found ${gradedProducts.length} graded variants`);
 
-    // Step 3: Get market data for top 3 graded variants
+    // Step 3: Prioritise high grades from major companies (PSA 10, CGC 10, BGS 10 etc.)
+    const prioritised = gradedProducts.sort((a, b) => {
+      const gradeA = parseFloat(a.grade) || 0;
+      const gradeB = parseFloat(b.grade) || 0;
+      return gradeB - gradeA; // highest grade first
+    });
+
+    // Get market data for top 3 graded variants
     const slabs = [];
-    const toFetch = gradedProducts.slice(0, 3);
+    const toFetch = prioritised.slice(0, 5); // fetch a few extra in case some have no data
 
     for (const product of toFetch) {
+      if (slabs.length >= 3) break;
       const productId = product.product_id;
       const marketCacheKey = `market:${productId}`;
       let marketData = getCached(marketDataCache, marketCacheKey, MARKET_DATA_TTL);
@@ -376,8 +397,9 @@ async function getSlabPricing(setId, cardNumber, cardName) {
       if (pricingRecords && pricingRecords.length > 0) {
         const formatted = formatPricingData(pricingRecords, productId, false);
         if (formatted.marketPrice > 0) {
+          const gradeLabel = parseGradeLabel(productId) || product.material || 'Graded';
           slabs.push({
-            grade: product.material,
+            grade: gradeLabel,
             market_price: formatted.marketPrice,
             currency: formatted.currency,
             trends: formatted.trends,

@@ -86,7 +86,7 @@ async function searchCatalogue(pokePulseSetId, cardName) {
 }
 
 // Search PokePulse catalogue for graded/slab cards (includes all materials)
-async function searchCatalogueGraded(pokePulseSetId, cardName) {
+async function searchCatalogueGraded(pokePulseSetId, cardName, cardNumber) {
   const url = 'https://catalogueservicev2-production.up.railway.app/api/cards/search';
 
   const response = await fetch(url, {
@@ -98,6 +98,7 @@ async function searchCatalogueGraded(pokePulseSetId, cardName) {
     body: JSON.stringify({
       ...(pokePulseSetId && { setId: pokePulseSetId }),
       cardName: cardName,
+      ...(cardNumber && { cardNumber: cardNumber }),
       excludeGraded: false,
       limit: 30
     })
@@ -406,23 +407,26 @@ async function findCachedProduct(pokePulseSetId, cardNumber) {
 }
 
 // Look up cached graded product_ids from DB
+// Graded product_ids end with |COMPANY|grade (not |null|null)
 async function findCachedGradedProducts(pokePulseSetId, cardNumber) {
   try {
     const result = await pool.query(
       `SELECT product_id, card_name, card_number, material
        FROM pokepulse_catalogue
-       WHERE set_id = $1 AND card_number = $2 AND material IS NOT NULL
-       ORDER BY material`,
+       WHERE set_id = $1 AND card_number = $2
+         AND product_id !~ '\\|null\\|null$'
+       ORDER BY product_id`,
       [pokePulseSetId, cardNumber]
     );
     if (result.rows.length > 0) return result.rows;
 
-    // Fuzzy match
+    // Fuzzy match on card_number (e.g. "199" matches "199/165")
     const fuzzy = await pool.query(
       `SELECT product_id, card_name, card_number, material
        FROM pokepulse_catalogue
-       WHERE set_id = $1 AND card_number LIKE $2 AND material IS NOT NULL
-       ORDER BY material`,
+       WHERE set_id = $1 AND card_number LIKE $2
+         AND product_id !~ '\\|null\\|null$'
+       ORDER BY product_id`,
       [pokePulseSetId, cardNumber + '%']
     );
     if (fuzzy.rows.length > 0) return fuzzy.rows;
