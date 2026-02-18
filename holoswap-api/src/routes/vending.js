@@ -5,9 +5,9 @@ const {
   catalogueCache, marketDataCache, CATALOGUE_TTL, MARKET_DATA_TTL,
   getCached, setCache, checkRateLimit,
   convertSetIdToPokePulse, searchCatalogue, getMarketData,
-  findMatchingCard, matchCardNumber, extractCardsArray, extractPricingRecords, formatPricingData,
+  findMatchingCards, matchCardNumber, extractCardsArray, extractPricingRecords, formatPricingData,
   analyzeBuyRecommendation, savePriceHistory,
-  findCachedProduct, cacheCatalogueResults, getCatalogueStats,
+  findCachedProducts, cacheCatalogueResults, getCatalogueStats,
 } = require('../lib/pricing');
 
 const router = Router();
@@ -232,24 +232,24 @@ async function searchCardsByName(query) {
   return result.rows;
 }
 
-// Get pricing for a card
+// Get pricing for a card (returns all variants with prices)
 async function getCardPricing(setId, cardNumber, cardName) {
   // Read pokepulse_set_id from card_index (no runtime conversion needed)
   const ppRow = await pool.query('SELECT pokepulse_set_id FROM card_index WHERE set_id = $1 AND pokepulse_set_id IS NOT NULL LIMIT 1', [setId]);
   const pokePulseSetId = ppRow.rows[0]?.pokepulse_set_id || convertSetIdToPokePulse(setId);
   console.log(`[Vending] setId: ${setId} → pokepulse: ${pokePulseSetId}`);
 
-  let productId = null;
+  let matchingCards = [];
 
-  // Step 1: Check DB cache for product_id (skips catalogue API entirely)
-  const cachedProduct = await findCachedProduct(pokePulseSetId, cardNumber);
-  if (cachedProduct) {
-    productId = cachedProduct.product_id;
-    console.log(`[Vending] DB cache hit → product_id: ${productId}`);
+  // Step 1: Check DB cache for all variants
+  const cachedProducts = await findCachedProducts(pokePulseSetId, cardNumber);
+  if (cachedProducts.length > 0) {
+    matchingCards = cachedProducts;
+    console.log(`[Vending] DB cache hit → ${matchingCards.length} variant(s)`);
   }
 
   // Step 2: If no cache hit, search PokePulse catalogue API
-  if (!productId) {
+  if (matchingCards.length === 0) {
     const setIdsToTry = [pokePulseSetId];
     if (setId !== pokePulseSetId) setIdsToTry.push(setId);
     setIdsToTry.push(null); // fallback: name-only search
@@ -272,7 +272,6 @@ async function getCardPricing(setId, cardNumber, cardName) {
       console.log(`[Vending] setId=${trySetId || 'NONE'} → ${cardsArray ? cardsArray.length : 0} cards`);
 
       if (cardsArray && cardsArray.length > 0) {
-        // Cache ALL results to DB for future lookups
         cacheCatalogueResults(trySetId, cardsArray).catch(err =>
           console.error('[Vending] Cache save error:', err.message)
         );
@@ -282,34 +281,61 @@ async function getCardPricing(setId, cardNumber, cardName) {
 
     if (!cardsArray || cardsArray.length === 0) return null;
 
-    const matchingCard = findMatchingCard(cardsArray, cardNumber);
-    if (!matchingCard) return null;
-
-    productId = matchingCard.product_id;
-    console.log(`[Vending] Catalogue API → product_id: ${productId}`);
+    matchingCards = findMatchingCards(cardsArray, cardNumber);
+    if (matchingCards.length === 0) return null;
   }
 
-  // Step 3: Get market data (always needed, short cache)
-  const marketCacheKey = `market:${productId}`;
+  // Step 3: Get market data for ALL variants in one batched call
+  const productIds = matchingCards.map(c => c.product_id);
+  const marketCacheKey = `market:${productIds.join(',')}`;
   let marketData = getCached(marketDataCache, marketCacheKey, MARKET_DATA_TTL);
   let cached = true;
 
   if (!marketData) {
     checkRateLimit();
-    console.log(`[Vending] Market data fetch for: ${productId}`);
-    marketData = await getMarketData(productId);
+    console.log(`[Vending] Market data fetch for ${productIds.length} variant(s)`);
+    marketData = await getMarketData(productIds);
     console.log(`[Vending] Market data response:`, JSON.stringify(marketData).substring(0, 500));
     setCache(marketDataCache, marketCacheKey, marketData);
     cached = false;
   }
 
-  const pricingRecords = extractPricingRecords(marketData, productId);
-  if (!pricingRecords || pricingRecords.length === 0) {
-    console.log(`[Vending] No pricing records found for ${productId}`);
-    return null;
+  // Build variants array with pricing for each
+  const variants = [];
+  for (const card of matchingCards) {
+    const pid = card.product_id;
+    const pricingRecords = extractPricingRecords(marketData, pid);
+    if (!pricingRecords || pricingRecords.length === 0) continue;
+
+    const pricing = formatPricingData(pricingRecords, pid, cached);
+    variants.push({
+      material: card.material || null,
+      product_id: pid,
+      market_price: pricing.marketPrice,
+      currency: pricing.currency,
+      conditions: pricing.conditions,
+      trends: pricing.trends,
+      lastSoldPrice: pricing.lastSoldPrice,
+      lastSoldDate: pricing.lastSoldDate,
+    });
   }
 
-  return formatPricingData(pricingRecords, productId, cached);
+  if (variants.length === 0) return null;
+
+  // Return first variant's data at top level for backwards compat, plus variants array
+  const first = variants[0];
+  return {
+    productId: first.product_id,
+    marketPrice: first.market_price,
+    currency: first.currency,
+    conditions: first.conditions,
+    trends: first.trends,
+    lastSoldPrice: first.lastSoldPrice,
+    lastSoldDate: first.lastSoldDate,
+    lastUpdated: new Date().toISOString(),
+    cached,
+    variants: variants.length > 1 ? variants : undefined,
+  };
 }
 
 // ============================================================
@@ -407,7 +433,7 @@ router.post('/lookup', async (req, res) => {
             currency: pricingData?.currency || 'GBP',
             conditions: pricingData?.conditions || null,
             trends: pricingData?.trends || null,
-
+            variants: pricingData?.variants || undefined,
           }
         });
       }
@@ -484,7 +510,7 @@ router.post('/lookup', async (req, res) => {
             currency: pricingData?.currency || 'GBP',
             conditions: pricingData?.conditions || null,
             trends: pricingData?.trends || null,
-
+            variants: pricingData?.variants || undefined,
           }
         });
       }
@@ -556,7 +582,7 @@ router.post('/lookup', async (req, res) => {
             currency: pricingData?.currency || 'GBP',
             conditions: pricingData?.conditions || null,
             trends: pricingData?.trends || null,
-
+            variants: pricingData?.variants || undefined,
           }
         });
       }
@@ -632,7 +658,7 @@ router.post('/lookup', async (req, res) => {
         currency: pricingData?.currency || 'GBP',
         conditions: pricingData?.conditions || null,
         trends: pricingData?.trends || null,
-
+        variants: pricingData?.variants || undefined,
       }
     });
 
@@ -713,7 +739,7 @@ router.post('/lookup-card', async (req, res) => {
         currency: pricingData?.currency || 'GBP',
         conditions: pricingData?.conditions || null,
         trends: pricingData?.trends || null,
-
+        variants: pricingData?.variants || undefined,
       }
     });
 
@@ -976,7 +1002,7 @@ router.post('/buy-lookup', auth, requireVendorOrAdmin, async (req, res) => {
             currency: pricingData?.currency || 'GBP',
             conditions: pricingData?.conditions || null,
             trends: pricingData?.trends || null,
-
+            variants: pricingData?.variants || undefined,
           }
         });
       }
@@ -1056,7 +1082,7 @@ router.post('/buy-lookup', auth, requireVendorOrAdmin, async (req, res) => {
             currency: pricingData?.currency || 'GBP',
             conditions: pricingData?.conditions || null,
             trends: pricingData?.trends || null,
-
+            variants: pricingData?.variants || undefined,
           }
         });
       }
@@ -1141,7 +1167,7 @@ router.post('/buy-lookup', auth, requireVendorOrAdmin, async (req, res) => {
         lastSoldDate: pricingData?.lastSoldDate || null,
         lastSoldPrice: pricingData?.lastSoldPrice || null,
         trends: pricingData?.trends || null,
-
+        variants: pricingData?.variants || undefined,
         recommendation,
       }
     });
@@ -1221,7 +1247,7 @@ router.post('/buy-lookup-card', auth, requireVendorOrAdmin, async (req, res) => 
         lastSoldDate: pricingData?.lastSoldDate || null,
         lastSoldPrice: pricingData?.lastSoldPrice || null,
         trends: pricingData?.trends || null,
-
+        variants: pricingData?.variants || undefined,
         recommendation,
       }
     });

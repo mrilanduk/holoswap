@@ -138,47 +138,29 @@ function matchCardNumber(catalogueNum, searchNum) {
   return catalogueBase === searchBase;
 }
 
-function findMatchingCard(catalogueResults, cardNumber) {
-  console.log(`Finding match for card number "${cardNumber}" among ${catalogueResults.length} results`);
-  const materials = catalogueResults.map(c => ({ name: c.card_name || c.name, num: c.card_number, material: c.material }));
-  console.log(`Card materials: ${JSON.stringify(materials)}`);
+// Return ALL matching variants for a card number (excludeGraded already handled by API)
+function findMatchingCards(catalogueResults, cardNumber) {
+  console.log(`Finding matches for card number "${cardNumber}" among ${catalogueResults.length} results`);
 
-  // Accept raw cards (material null, undefined, or empty string)
-  const rawCards = catalogueResults.filter(card => !card.material);
-  console.log(`${rawCards.length} raw (non-graded) cards found`);
-
-  if (rawCards.length === 0) {
-    // If all cards are graded/material, use them anyway as fallback
-    console.log(`No raw cards found, using all ${catalogueResults.length} cards as fallback`);
-    const allMatches = catalogueResults.filter(card =>
-      card.card_number && matchCardNumber(card.card_number, cardNumber)
-    );
-    if (allMatches.length > 0) return allMatches[0];
-    if (catalogueResults.length === 1) return catalogueResults[0];
-    return null;
-  }
-
-  if (rawCards.length > 0) {
-    const cardNumbers = rawCards.map(c => c.card_number).slice(0, 5);
-    console.log(`Sample card numbers: ${cardNumbers.join(', ')}`);
-  }
-
-  const exactMatches = rawCards.filter(card =>
+  // Match by card number across all variants
+  const matches = catalogueResults.filter(card =>
     card.card_number && matchCardNumber(card.card_number, cardNumber)
   );
 
-  if (exactMatches.length > 0) {
-    console.log(`Found ${exactMatches.length} exact number match(es), using: ${exactMatches[0].card_number}`);
-    return exactMatches[0];
+  if (matches.length > 0) {
+    const variants = matches.map(c => c.material || 'Standard').join(', ');
+    console.log(`Found ${matches.length} variant(s): ${variants}`);
+    return matches;
   }
 
-  if (rawCards.length === 1) {
-    console.log(`Only one raw card found, using despite number mismatch: ${rawCards[0].card_number}`);
-    return rawCards[0];
+  // Fallback: if only one result, use it
+  if (catalogueResults.length === 1) {
+    console.log(`Only one card found, using despite number mismatch: ${catalogueResults[0].card_number}`);
+    return [catalogueResults[0]];
   }
 
-  console.log(`Multiple raw cards (${rawCards.length}) but no card number match for "${cardNumber}"`);
-  return null;
+  console.log(`No card number match for "${cardNumber}"`);
+  return [];
 }
 
 // Extract cards array from catalogue response
@@ -368,37 +350,35 @@ function analyzeBuyRecommendation(pricingData) {
 // Stores product_id mappings so we can skip catalogue API calls
 // ============================================================
 
-// Look up cached product_id from DB
-async function findCachedProduct(pokePulseSetId, cardNumber) {
+// Look up cached product_ids from DB (returns all variants for a card)
+async function findCachedProducts(pokePulseSetId, cardNumber) {
   try {
     const result = await pool.query(
-      `SELECT product_id, card_name, card_number, image_url
+      `SELECT product_id, card_name, card_number, image_url, material
        FROM pokepulse_catalogue
-       WHERE set_id = $1 AND card_number = $2 AND material IS NULL
-       LIMIT 1`,
+       WHERE set_id = $1 AND card_number = $2`,
       [pokePulseSetId, cardNumber]
     );
     if (result.rows.length > 0) {
-      console.log(`[PP Cache] HIT: ${pokePulseSetId} #${cardNumber} → ${result.rows[0].product_id}`);
-      return result.rows[0];
+      console.log(`[PP Cache] HIT: ${pokePulseSetId} #${cardNumber} → ${result.rows.length} variant(s)`);
+      return result.rows;
     }
     // Try with card_number starting with the number (e.g., "89" matches "89/123")
     const fuzzy = await pool.query(
-      `SELECT product_id, card_name, card_number, image_url
+      `SELECT product_id, card_name, card_number, image_url, material
        FROM pokepulse_catalogue
-       WHERE set_id = $1 AND card_number LIKE $2 AND material IS NULL
-       LIMIT 1`,
+       WHERE set_id = $1 AND card_number LIKE $2`,
       [pokePulseSetId, cardNumber + '%']
     );
     if (fuzzy.rows.length > 0) {
-      console.log(`[PP Cache] FUZZY HIT: ${pokePulseSetId} #${cardNumber} → ${fuzzy.rows[0].product_id}`);
-      return fuzzy.rows[0];
+      console.log(`[PP Cache] FUZZY HIT: ${pokePulseSetId} #${cardNumber} → ${fuzzy.rows.length} variant(s)`);
+      return fuzzy.rows;
     }
     console.log(`[PP Cache] MISS: ${pokePulseSetId} #${cardNumber}`);
-    return null;
+    return [];
   } catch (err) {
     console.error('[PP Cache] Lookup error:', err.message);
-    return null;
+    return [];
   }
 }
 
@@ -499,14 +479,14 @@ module.exports = {
   convertSetIdToPokePulse,
   searchCatalogue,
   getMarketData,
-  findMatchingCard,
+  findMatchingCards,
   matchCardNumber,
   extractCardsArray,
   extractPricingRecords,
   formatPricingData,
   analyzeBuyRecommendation,
   savePriceHistory,
-  findCachedProduct,
+  findCachedProducts,
   cacheCatalogueResults,
   getCatalogueStats,
 };
