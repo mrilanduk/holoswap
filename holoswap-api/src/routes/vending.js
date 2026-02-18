@@ -393,10 +393,12 @@ async function getSlabPricing(setId, cardNumber, cardName) {
       }
 
       const pricingRecords = extractPricingRecords(marketData, productId);
+      const info = parseGradeInfo(productId);
+      console.log(`[Slab] ${info?.company} ${info?.grade}: ${pricingRecords?.length || 0} pricing records`);
       if (pricingRecords && pricingRecords.length > 0) {
         const formatted = formatPricingData(pricingRecords, productId, false);
+        console.log(`[Slab] ${info?.company} ${info?.grade}: marketPrice=${formatted.marketPrice}`);
         if (formatted.marketPrice > 0) {
-          const info = parseGradeInfo(productId);
           slabs.push({
             grade: `${info.company} ${info.grade}`,
             market_price: formatted.marketPrice,
@@ -407,6 +409,7 @@ async function getSlabPricing(setId, cardNumber, cardName) {
       }
     }
 
+    console.log(`[Slab] Returning ${slabs.length} slabs:`, JSON.stringify(slabs));
     return slabs;
   } catch (err) {
     console.error('[Slab] Error:', err.message);
