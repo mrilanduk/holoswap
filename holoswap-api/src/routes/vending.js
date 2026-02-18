@@ -296,13 +296,18 @@ async function getCardPricing(setId, cardNumber, cardName) {
 
   if (!marketData) {
     checkRateLimit();
+    console.log(`[Vending] Market data fetch for: ${productId}`);
     marketData = await getMarketData(productId);
+    console.log(`[Vending] Market data response:`, JSON.stringify(marketData).substring(0, 500));
     setCache(marketDataCache, marketCacheKey, marketData);
     cached = false;
   }
 
   const pricingRecords = extractPricingRecords(marketData, productId);
-  if (!pricingRecords || pricingRecords.length === 0) return null;
+  if (!pricingRecords || pricingRecords.length === 0) {
+    console.log(`[Vending] No pricing records found for ${productId}`);
+    return null;
+  }
 
   return formatPricingData(pricingRecords, productId, cached);
 }
