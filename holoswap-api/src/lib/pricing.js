@@ -51,7 +51,12 @@ function checkRateLimit() {
 
 // Convert TCGDex set ID to PokePulse format
 // sv03.5 → sv3pt5, me02.5 → me2pt5, sv01 → sv1
+const POKEPULSE_SET_OVERRIDES = {
+  'me01': 'm1',
+};
+
 function convertSetIdToPokePulse(tcgdexSetId) {
+  if (POKEPULSE_SET_OVERRIDES[tcgdexSetId]) return POKEPULSE_SET_OVERRIDES[tcgdexSetId];
   if (tcgdexSetId.includes('.')) {
     const parts = tcgdexSetId.split('.');
     const prefix = parts[0].replace(/(\D+)0*(\d+)/, '$1$2');
