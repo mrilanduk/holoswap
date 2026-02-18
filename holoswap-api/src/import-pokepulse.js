@@ -128,15 +128,36 @@ async function fetchPokePulseSets() {
   return null;
 }
 
-// Discover ALL set IDs by paging through the full PokePulse catalogue
+// Discover set IDs by sampling every 10th page of the PokePulse catalogue (~31 calls)
 async function discoverSets() {
-  console.log('🔍 Discovering all PokePulse set IDs...\n');
+  console.log('🔍 Discovering PokePulse set IDs (sampling every 10th page)...\n');
   const allSets = new Map();
-  let page = 1;
   const pageSize = 1000;
   let totalPages = 1;
 
-  while (page <= totalPages) {
+  // First call to get total pages
+  const firstRes = await fetch(CATALOGUE_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-API-Key': API_KEY },
+    body: JSON.stringify({ page: 1, page_size: pageSize }),
+  });
+  if (!firstRes.ok) throw new Error(`API error: ${firstRes.status}`);
+  const firstData = await firstRes.json();
+
+  if (firstData.pagination) {
+    totalPages = firstData.pagination.total_pages || Math.ceil((firstData.pagination.total || 0) / pageSize);
+    console.log(`   ${firstData.pagination.total || '?'} total cards, ${totalPages} pages — sampling ~${Math.ceil(totalPages / 10)} pages\n`);
+  }
+
+  // Process first page
+  for (const c of extractCardsArray(firstData)) {
+    const sid = c.set_id || 'unknown';
+    if (!allSets.has(sid)) allSets.set(sid, { name: c.set_name || '', count: 0 });
+    allSets.get(sid).count++;
+  }
+
+  // Sample every 10th page
+  for (let page = 10; page <= totalPages; page += 10) {
     try {
       const res = await fetch(CATALOGUE_URL, {
         method: 'POST',
@@ -146,30 +167,20 @@ async function discoverSets() {
       if (!res.ok) throw new Error(`API error: ${res.status}`);
       const data = await res.json();
 
-      if (page === 1 && data.pagination) {
-        totalPages = data.pagination.total_pages || Math.ceil((data.pagination.total || 0) / pageSize);
-        console.log(`   ${data.pagination.total || '?'} total cards, ${totalPages} pages\n`);
-      }
-
-      const cards = extractCardsArray(data);
-      for (const c of cards) {
+      for (const c of extractCardsArray(data)) {
         const sid = c.set_id || 'unknown';
-        if (!allSets.has(sid)) {
-          allSets.set(sid, { name: c.set_name || '', count: 0 });
-        }
+        if (!allSets.has(sid)) allSets.set(sid, { name: c.set_name || '', count: 0 });
         allSets.get(sid).count++;
       }
 
       process.stdout.write(`   Page ${page}/${totalPages} — ${allSets.size} sets found so far\r`);
-      page++;
       await delay(500);
     } catch (err) {
       console.error(`\n   ❌ Page ${page} error: ${err.message}`);
       if (err.message.includes('429')) {
         console.log('   Waiting 60s for rate limit...');
         await delay(60000);
-      } else {
-        page++;
+        page -= 10; // retry
       }
     }
   }
@@ -177,7 +188,7 @@ async function discoverSets() {
   console.log(`\n\n   ✅ Found ${allSets.size} sets:\n`);
   const sorted = [...allSets.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   for (const [id, info] of sorted) {
-    console.log(`   ${id.padEnd(20)} ${info.name.padEnd(35)} (${info.count} cards)`);
+    console.log(`   ${id.padEnd(20)} ${info.name.padEnd(35)} (${info.count} sampled)`);
   }
 
   return sorted.map(([id]) => id);
