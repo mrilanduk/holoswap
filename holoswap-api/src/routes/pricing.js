@@ -1,5 +1,6 @@
 const { Router } = require('express');
 const auth = require('../middleware/auth');
+const pool = require('../db');
 const {
   catalogueCache, marketDataCache, CATALOGUE_TTL, MARKET_DATA_TTL,
   getCached, setCache, checkRateLimit,
@@ -20,8 +21,10 @@ router.get('/check', auth, async (req, res) => {
       });
     }
 
-    const pokePulseSetId = convertSetIdToPokePulse(setId);
-    console.log(`Converting setId: ${setId} → ${pokePulseSetId}`);
+    // Read pokepulse_set_id from card_index (no runtime conversion needed)
+    const ppRow = await pool.query('SELECT pokepulse_set_id FROM card_index WHERE set_id = $1 AND pokepulse_set_id IS NOT NULL LIMIT 1', [setId]);
+    const pokePulseSetId = ppRow.rows[0]?.pokepulse_set_id || convertSetIdToPokePulse(setId);
+    console.log(`setId: ${setId} → pokepulse: ${pokePulseSetId}`);
 
     // Check catalogue cache
     const catalogueCacheKey = `catalogue:${pokePulseSetId}:${name}`;

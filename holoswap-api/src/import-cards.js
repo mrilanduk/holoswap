@@ -22,6 +22,16 @@ const pool = new Pool({
 
 const TCGDEX_BASE = 'https://api.tcgdex.net/v2/en';
 
+// Convert TCGDex set ID to PokePulse format (stored once, not converted at runtime)
+function convertSetIdToPokePulse(tcgdexSetId) {
+  if (tcgdexSetId.includes('.')) {
+    const parts = tcgdexSetId.split('.');
+    const prefix = parts[0].replace(/(\D+)0*(\d+)/, '$1$2');
+    return `${prefix}pt${parts[1]}`;
+  }
+  return tcgdexSetId.replace(/(\D+)0*(\d+)/, '$1$2');
+}
+
 async function fetchJSON(url) {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Failed to fetch ${url}: ${res.status}`);
@@ -133,11 +143,12 @@ async function run() {
             card.resistances ? JSON.stringify(card.resistances) : null,
             retreatCost,
             card.legal?.standard || false,
-            card.legal?.expanded || false
+            card.legal?.expanded || false,
+            convertSetIdToPokePulse(setData.id)
           );
 
           const nums = [];
-          for (let n = 0; n < 27; n++) {
+          for (let n = 0; n < 28; n++) {
             nums.push(`$${paramIdx++}`);
           }
           placeholders.push(`(${nums.join(',')})`);
@@ -160,7 +171,8 @@ async function run() {
             id, name, local_id, category, rarity, hp, card_type, stage, evolve_from,
             description, illustrator, image_url, set_id, set_name, set_logo, set_symbol,
             set_total, variants_normal, variants_reverse, variants_holo, variants_first_ed,
-            attacks, weaknesses, resistances, retreat_cost, legal_standard, legal_expanded
+            attacks, weaknesses, resistances, retreat_cost, legal_standard, legal_expanded,
+            pokepulse_set_id
           ) VALUES ${placeholders.join(',')}
           ON CONFLICT (id) DO NOTHING
         `, values);

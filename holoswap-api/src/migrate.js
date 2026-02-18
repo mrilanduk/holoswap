@@ -220,6 +220,10 @@ const migrate = async () => {
     CREATE INDEX IF NOT EXISTS idx_pp_catalogue_name ON pokepulse_catalogue(card_name);
     CREATE INDEX IF NOT EXISTS idx_pp_catalogue_product ON pokepulse_catalogue(product_id);
 
+    -- PokePulse set ID stored directly on card_index (no more runtime conversion)
+    ALTER TABLE card_index ADD COLUMN IF NOT EXISTS pokepulse_set_id VARCHAR(50);
+    CREATE INDEX IF NOT EXISTS idx_card_index_pp_set_id ON card_index(pokepulse_set_id);
+
   `);
 
   console.log('✅ Tables created:');

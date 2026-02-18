@@ -260,25 +260,20 @@ async function showStatus() {
   const result = await pool.query(
     `SELECT
        ci.set_id as tcgdex_id,
+       ci.pokepulse_set_id as pp_set_id,
        ci.set_name,
        ci.card_count as index_cards,
        COALESCE(pp.cached, 0) as cached_cards
      FROM (
-       SELECT set_id, set_name, COUNT(DISTINCT name) as card_count
+       SELECT set_id, pokepulse_set_id, set_name, COUNT(DISTINCT name) as card_count
        FROM card_index
-       GROUP BY set_id, set_name
+       GROUP BY set_id, pokepulse_set_id, set_name
      ) ci
      LEFT JOIN (
        SELECT set_id, COUNT(*) FILTER (WHERE material IS NULL) as cached
        FROM pokepulse_catalogue
        GROUP BY set_id
-     ) pp ON pp.set_id = (
-       CASE
-         WHEN ci.set_id LIKE '%.' || '%' THEN
-           regexp_replace(split_part(ci.set_id, '.', 1), '(\\D+)0*(\\d+)', '\\1\\2') || 'pt' || split_part(ci.set_id, '.', 2)
-         ELSE regexp_replace(ci.set_id, '(\\D+)0*(\\d+)', '\\1\\2')
-       END
-     )
+     ) pp ON pp.set_id = ci.pokepulse_set_id
      ORDER BY COALESCE(pp.cached, 0) ASC, ci.set_id`
   );
 
@@ -305,7 +300,7 @@ async function showStatus() {
 // Prioritises newer sets (SV > SWSH > SM > XY > base) and skips sets marked as unsupported
 async function findNextSet() {
   const result = await pool.query(
-    `SELECT ci.set_id, ci.set_name, ci.card_count as index_cards,
+    `SELECT ci.set_id, ci.pokepulse_set_id, ci.set_name, ci.card_count as index_cards,
        COALESCE(pp.cached, 0) as cached_cards,
        CASE
          WHEN ci.set_id LIKE 'sv%' THEN 1
@@ -315,31 +310,20 @@ async function findNextSet() {
          ELSE 5
        END as era_priority
      FROM (
-       SELECT set_id, set_name, COUNT(DISTINCT name) as card_count
+       SELECT set_id, pokepulse_set_id, set_name, COUNT(DISTINCT name) as card_count
        FROM card_index
-       GROUP BY set_id, set_name
+       WHERE pokepulse_set_id IS NOT NULL
+       GROUP BY set_id, pokepulse_set_id, set_name
      ) ci
      LEFT JOIN (
        SELECT set_id, COUNT(*) FILTER (WHERE material IS NULL) as cached
        FROM pokepulse_catalogue
        GROUP BY set_id
-     ) pp ON pp.set_id = (
-       CASE
-         WHEN ci.set_id LIKE '%.' || '%' THEN
-           regexp_replace(split_part(ci.set_id, '.', 1), '(\\D+)0*(\\d+)', '\\1\\2') || 'pt' || split_part(ci.set_id, '.', 2)
-         ELSE regexp_replace(ci.set_id, '(\\D+)0*(\\d+)', '\\1\\2')
-       END
-     )
+     ) pp ON pp.set_id = ci.pokepulse_set_id
      WHERE COALESCE(pp.cached, 0) < ci.card_count * 0.8
        AND NOT EXISTS (
          SELECT 1 FROM pokepulse_catalogue sk
-         WHERE sk.set_id = (
-           CASE
-             WHEN ci.set_id LIKE '%.' || '%' THEN
-               regexp_replace(split_part(ci.set_id, '.', 1), '(\\D+)0*(\\d+)', '\\1\\2') || 'pt' || split_part(ci.set_id, '.', 2)
-             ELSE regexp_replace(ci.set_id, '(\\D+)0*(\\d+)', '\\1\\2')
-           END
-         ) AND sk.product_id LIKE 'SKIP_%'
+         WHERE sk.set_id = ci.pokepulse_set_id AND sk.product_id LIKE 'SKIP_%'
        )
      ORDER BY era_priority ASC, COALESCE(pp.cached, 0) ASC, ci.card_count DESC
      LIMIT 1`
@@ -349,8 +333,13 @@ async function findNextSet() {
 }
 
 // Import one set
-async function importSet(tcgdexSetId) {
-  const ppSetId = convertSetIdToPokePulse(tcgdexSetId);
+async function importSet(tcgdexSetId, ppSetIdOverride) {
+  // Use the pokepulse_set_id from card_index if available, fall back to conversion
+  let ppSetId = ppSetIdOverride;
+  if (!ppSetId) {
+    const ppRow = await pool.query('SELECT pokepulse_set_id FROM card_index WHERE set_id = $1 AND pokepulse_set_id IS NOT NULL LIMIT 1', [tcgdexSetId]);
+    ppSetId = ppRow.rows[0]?.pokepulse_set_id || convertSetIdToPokePulse(tcgdexSetId);
+  }
 
   // Get cards from card_index
   const cardsResult = await pool.query(
@@ -500,7 +489,7 @@ async function run() {
     }
   }
 
-  const result = await importSet(targetSet.set_id);
+  await importSet(targetSet.set_id, targetSet.pokepulse_set_id);
 
   // Final stats
   const finalStats = await pool.query(
