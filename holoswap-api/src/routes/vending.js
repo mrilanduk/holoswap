@@ -64,17 +64,17 @@ const SET_CODE_MAP = {
   'SVI': 'sv01', 'PAL': 'sv02', 'OBF': 'sv03', 'MEW': 'sv03.5',
   'PAR': 'sv04', 'PAF': 'sv04.5', 'TEF': 'sv05', 'TWM': 'sv06',
   'SFA': 'sv06.5', 'SCR': 'sv07', 'SSP': 'sv08', 'PRE': 'sv08.5',
-  'JTG': 'sv09', 'DRI': 'sv10', 'SVP': 'svp', 'SVE': 'sve',
+  'JTG': 'sv09', 'DRI': 'sv10', 'BLK': 'sv10.5b', 'WHT': 'sv10.5w', 'SVP': 'svp', 'SVE': 'sve',
   // Pokemon TCG Pocket
   'A1': 'A1', 'A1A': 'A1a', 'A2': 'A2', 'A2A': 'A2a', 'A3': 'A3',
   'P-A': 'P-A',
   // Mega evolution sets
-  'MEG': 'me01', 'PFL': 'me02',
+  'MEG': 'me01', 'PFL': 'me02', 'MEP': 'MEP',
   // Sword & Shield era
-  'SSH': 'swsh1', 'RCL': 'swsh2', 'DAA': 'swsh3', 'VIV': 'swsh4',
-  'BST': 'swsh5', 'CRE': 'swsh6', 'EVS': 'swsh7', 'FST': 'swsh8',
-  'BRS': 'swsh9', 'ASR': 'swsh10', 'LOR': 'swsh11', 'SIT': 'swsh12',
-  'CRZ': 'swsh12.5',
+  'SSH': 'swsh1', 'RCL': 'swsh2', 'DAA': 'swsh3', 'CPA': 'swsh3.5', 'VIV': 'swsh4',
+  'SHF': 'swsh4.5', 'BST': 'swsh5', 'CRE': 'swsh6', 'EVS': 'swsh7', 'CEL': 'swsh7.5',
+  'FST': 'swsh8', 'BRS': 'swsh9', 'ASR': 'swsh10', 'PGO': 'swsh10.5',
+  'LOR': 'swsh11', 'SIT': 'swsh12', 'CRZ': 'swsh12.5',
   // Sun & Moon era
   'SUM': 'sm1', 'GRI': 'sm2', 'BUS': 'sm3', 'SLG': 'sm35',
   'CIN': 'sm4', 'UPR': 'sm5', 'FLI': 'sm6', 'CES': 'sm7',
