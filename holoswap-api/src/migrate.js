@@ -226,6 +226,21 @@ const migrate = async () => {
 
   `);
 
+  // Backfill pokepulse_set_id from existing set_id (pure SQL, no API calls)
+  const backfill = await pool.query(`
+    UPDATE card_index
+    SET pokepulse_set_id = CASE
+      WHEN set_id LIKE '%.%' THEN
+        regexp_replace(split_part(set_id, '.', 1), '(\\D+)0*(\\d+)', '\\1\\2') || 'pt' || split_part(set_id, '.', 2)
+      ELSE
+        regexp_replace(set_id, '(\\D+)0*(\\d+)', '\\1\\2')
+    END
+    WHERE pokepulse_set_id IS NULL
+  `);
+  if (backfill.rowCount > 0) {
+    console.log(`\n🔄 Backfilled pokepulse_set_id on ${backfill.rowCount} card_index rows`);
+  }
+
   console.log('✅ Tables created:');
   console.log('   - waitlist');
   console.log('   - users');
