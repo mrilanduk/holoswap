@@ -330,6 +330,9 @@ async function getSlabPricing(setId, cardNumber, cardName) {
       const cardsArray = extractCardsArray(catalogueData);
 
       if (cardsArray && cardsArray.length > 0) {
+        // Debug: log first 3 items to see the structure
+        console.log(`[Slab] Catalogue returned ${cardsArray.length} items. Sample:`, JSON.stringify(cardsArray.slice(0, 3).map(c => ({ product_id: c.product_id, card_number: c.card_number, material: c.material, grade: c.grade, variant: c.variant }))));
+
         // Cache everything (raw + graded)
         cacheCatalogueResults(pokePulseSetId, cardsArray).catch(err =>
           console.error('[Slab] Cache save error:', err.message)
