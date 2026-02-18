@@ -111,8 +111,9 @@ async function searchCatalogueGraded(pokePulseSetId, cardName) {
 }
 
 // Get market data from PokePulse
-async function getMarketData(productId) {
+async function getMarketData(productIdOrIds) {
   const url = 'https://marketdataapi-production.up.railway.app/api/market-data/batch';
+  const ids = Array.isArray(productIdOrIds) ? productIdOrIds : [productIdOrIds];
 
   const response = await fetch(url, {
     method: 'POST',
@@ -121,7 +122,7 @@ async function getMarketData(productId) {
       'x-api-key': process.env.POKEPULSE_MARKET_KEY
     },
     body: JSON.stringify({
-      productIds: [productId]
+      productIds: ids
     })
   });
 

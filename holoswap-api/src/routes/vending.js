@@ -333,90 +333,62 @@ function parseGradeInfo(productId) {
 
 async function getSlabPricing(setId, cardNumber, cardName) {
   try {
+    // Step 1: Find the raw product_id to derive the graded product_ids
     const ppRow = await pool.query('SELECT pokepulse_set_id FROM card_index WHERE set_id = $1 AND pokepulse_set_id IS NOT NULL LIMIT 1', [setId]);
     const pokePulseSetId = ppRow.rows[0]?.pokepulse_set_id || convertSetIdToPokePulse(setId);
 
-    // Step 1: Check DB cache for graded products
-    let gradedProducts = await findCachedGradedProducts(pokePulseSetId, cardNumber);
-
-    // Step 2: If no cache, search PokePulse catalogue (includes graded)
-    if (gradedProducts.length === 0) {
-      checkRateLimit();
-      console.log(`[Slab] Catalogue search: setId=${pokePulseSetId}, cardName=${cardName}`);
-      const catalogueData = await searchCatalogueGraded(pokePulseSetId, cardName);
-      const cardsArray = extractCardsArray(catalogueData);
-
-      if (cardsArray && cardsArray.length > 0) {
-        // Cache everything (raw + graded)
-        cacheCatalogueResults(pokePulseSetId, cardsArray).catch(err =>
-          console.error('[Slab] Cache save error:', err.message)
-        );
-
-        // Pre-filter to matching card number
-        gradedProducts = cardsArray.filter(c =>
-          c.card_number && matchCardNumber(c.card_number, cardNumber)
-        );
-      }
-    }
-
-    // Always filter to target companies + grade 10 only
-    gradedProducts = gradedProducts.filter(p => {
-      const info = parseGradeInfo(p.product_id);
-      return info && info.grade === SLAB_GRADE && SLAB_COMPANIES.includes(info.company);
-    });
-
-    if (gradedProducts.length === 0) {
-      console.log(`[Slab] No graded products found for ${cardName} #${cardNumber}`);
+    // Find the raw (ungraded) product in cache
+    const rawProduct = await findCachedProduct(pokePulseSetId, cardNumber);
+    if (!rawProduct) {
+      console.log(`[Slab] No raw product cached for ${pokePulseSetId} #${cardNumber}`);
       return [];
     }
 
-    console.log(`[Slab] Found ${gradedProducts.length} grade-10 variants: ${gradedProducts.map(p => parseGradeInfo(p.product_id)?.company).join(', ')}`);
+    // Step 2: Construct graded product_ids from the raw product_id
+    // Raw: card:sv3pt5|199/165|null|null|null|null
+    // Graded: card:sv3pt5|199/165|null|null|PSA|10
+    const parts = rawProduct.product_id.split('|');
+    if (parts.length < 6) return [];
 
-    // Get market data for each company's grade 10
+    const base = parts.slice(0, 4).join('|'); // card:set|number|material|field4
+    const gradedIds = SLAB_COMPANIES.map(company => `${base}|${company}|${SLAB_GRADE}`);
+
+    console.log(`[Slab] Batch fetching: ${gradedIds.map(id => parseGradeInfo(id)?.company).join(', ')}`);
+
+    // Step 3: Single batch market data call for all companies
+    checkRateLimit();
+    const marketData = await getMarketData(gradedIds);
+
+    // Step 4: Extract prices for each company
     const slabs = [];
+    const data = marketData?.data || marketData || {};
 
-    for (const product of gradedProducts) {
-      const productId = product.product_id;
-      const marketCacheKey = `market:${productId}`;
-      let marketData = getCached(marketDataCache, marketCacheKey, MARKET_DATA_TTL);
+    for (const productId of gradedIds) {
+      const records = data[productId];
+      if (!records || records.length === 0) continue;
 
-      if (!marketData) {
-        try {
-          checkRateLimit();
-          marketData = await getMarketData(productId);
-          setCache(marketDataCache, marketCacheKey, marketData);
-        } catch (err) {
-          const info = parseGradeInfo(productId);
-          console.error(`[Slab] Market data error for ${info?.company}:`, err.message);
-          continue;
-        }
-      }
-
-      const pricingRecords = extractPricingRecords(marketData, productId);
+      const record = records.find(r => parseFloat(r.value) > 0) || records[0];
+      const price = parseFloat(record.value) || 0;
+      const currency = record.currency === '£' ? 'GBP' : (record.currency || 'GBP');
       const info = parseGradeInfo(productId);
-      if (pricingRecords && pricingRecords.length > 0) {
-        // Graded cards may not have NM condition — take first record with a value
-        const record = pricingRecords.find(r => parseFloat(r.value) > 0) || pricingRecords[0];
-        const price = parseFloat(record.value) || 0;
-        const currency = record.currency === '£' ? 'GBP' : (record.currency || 'GBP');
-        console.log(`[Slab] ${info?.company} ${info?.grade}: £${price} (condition: ${record.condition})`);
-        if (price > 0) {
-          slabs.push({
-            grade: `${info.company} ${info.grade}`,
-            market_price: price,
-            currency: currency,
-            trends: record.trends ? {
-              '7day': {
-                percentage: record.trends['7d']?.percentage_change || 0,
-                previous: record.trends['7d']?.previous_value || 0,
-              }
-            } : null,
-          });
-        }
+
+      if (price > 0) {
+        console.log(`[Slab] ${info.company} ${info.grade}: £${price}`);
+        slabs.push({
+          grade: `${info.company} ${info.grade}`,
+          market_price: price,
+          currency: currency,
+          trends: record.trends ? {
+            '7day': {
+              percentage: record.trends['7d']?.percentage_change || 0,
+              previous: record.trends['7d']?.previous_value || 0,
+            }
+          } : null,
+        });
       }
     }
 
-    console.log(`[Slab] Returning ${slabs.length} slabs:`, JSON.stringify(slabs));
+    console.log(`[Slab] Returning ${slabs.length} slabs`);
     return slabs;
   } catch (err) {
     console.error('[Slab] Error:', err.message);
