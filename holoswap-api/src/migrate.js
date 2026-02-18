@@ -244,8 +244,15 @@ const migrate = async () => {
   // Fix set IDs that don't follow standard conversion (matches POKEPULSE_SET_OVERRIDES in pricing.js)
   const overrideFix = await pool.query(`
     UPDATE card_index SET pokepulse_set_id = 'm1' WHERE set_id = 'me01' AND pokepulse_set_id != 'm1';
+    UPDATE card_index SET pokepulse_set_id = 'me02' WHERE set_id = 'me02' AND pokepulse_set_id != 'me02';
+    UPDATE card_index SET pokepulse_set_id = 'mep' WHERE set_id = 'MEP' AND pokepulse_set_id != 'mep';
     UPDATE card_index SET pokepulse_set_id = 'rsv10pt5' WHERE set_id = 'sv10.5w' AND pokepulse_set_id != 'rsv10pt5';
     UPDATE card_index SET pokepulse_set_id = 'zsv10pt5' WHERE set_id = 'sv10.5b' AND pokepulse_set_id != 'zsv10pt5';
+    UPDATE card_index SET pokepulse_set_id = 'cel25' WHERE set_id = 'swsh7.5' AND pokepulse_set_id != 'cel25';
+    UPDATE card_index SET pokepulse_set_id = 'pgo' WHERE set_id = 'swsh10.5' AND pokepulse_set_id != 'pgo';
+    UPDATE card_index SET pokepulse_set_id = 'sm3pt5' WHERE set_id = 'sm35' AND pokepulse_set_id != 'sm3pt5';
+    UPDATE card_index SET pokepulse_set_id = 'bsu' WHERE set_id = 'base1' AND pokepulse_set_id != 'bsu';
+    UPDATE card_index SET pokepulse_set_id = 'tr' WHERE set_id = 'base5' AND pokepulse_set_id != 'tr';
   `);
   if (overrideFix.rowCount > 0) {
     console.log(`\n🔄 Fixed pokepulse_set_id overrides for ${overrideFix.rowCount} rows`);

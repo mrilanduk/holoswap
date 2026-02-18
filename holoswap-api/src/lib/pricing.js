@@ -52,9 +52,21 @@ function checkRateLimit() {
 // Convert TCGDex set ID to PokePulse format
 // sv03.5 → sv3pt5, me02.5 → me2pt5, sv01 → sv1
 const POKEPULSE_SET_OVERRIDES = {
+  // Mega Evolution
   'me01': 'm1',
-  'sv10.5w': 'rsv10pt5',
-  'sv10.5b': 'zsv10pt5',
+  'me02': 'me02',        // conversion strips zero → me2, but PokePulse keeps me02
+  'MEP': 'mep',          // case mismatch
+  // SV era
+  'sv10.5w': 'rsv10pt5', // White Flare
+  'sv10.5b': 'zsv10pt5', // Black Bolt
+  // SWSH era
+  'swsh7.5': 'cel25',    // Celebrations
+  'swsh10.5': 'pgo',     // Pokémon GO
+  // SM era
+  'sm35': 'sm3pt5',      // Shining Legends (TCGDex uses sm35 not sm3.5)
+  // Base sets
+  'base1': 'bsu',        // Base Set (PokePulse uses bsu for unlimited)
+  'base5': 'tr',         // Team Rocket (PokePulse base5 = different set)
 };
 
 function convertSetIdToPokePulse(tcgdexSetId) {
