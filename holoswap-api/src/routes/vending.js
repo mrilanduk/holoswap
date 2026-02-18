@@ -346,12 +346,19 @@ async function getSlabPricing(setId, cardNumber, cardName) {
 
     // Step 2: Construct graded product_ids from the raw product_id
     // Raw: card:sv3pt5|199/165|null|null|null|null
-    // Graded: card:sv3pt5|199/165|null|null|PSA|10
+    // Graded: card:sv3pt5|199/165|Holo|null|PSA|10
+    // Material can be null or Holo — try both variants
     const parts = rawProduct.product_id.split('|');
     if (parts.length < 6) return [];
 
-    const base = parts.slice(0, 4).join('|'); // card:set|number|material|field4
-    const gradedIds = SLAB_COMPANIES.map(company => `${base}|${company}|${SLAB_GRADE}`);
+    const setAndNumber = parts.slice(0, 2).join('|'); // card:set|number
+    const materials = ['null', 'Holo'];
+    const gradedIds = [];
+    for (const material of materials) {
+      for (const company of SLAB_COMPANIES) {
+        gradedIds.push(`${setAndNumber}|${material}|null|${company}|${SLAB_GRADE}`);
+      }
+    }
 
     console.log(`[Slab] Batch fetching: ${gradedIds.map(id => parseGradeInfo(id)?.company).join(', ')}`);
 
