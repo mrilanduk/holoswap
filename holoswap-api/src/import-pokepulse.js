@@ -7,6 +7,7 @@
 //   node import-pokepulse.js sv01       # Import a specific set
 //   node import-pokepulse.js --status   # Show cache coverage stats
 //   node import-pokepulse.js --sets     # List available PokePulse sets
+//   node import-pokepulse.js --bulk      # Bulk-cache ALL vending sets (1-2 API calls per set)
 //   node import-pokepulse.js --discover  # Discover all PokePulse set IDs (pages full catalogue)
 //
 // Add to cron: 0 3 * * * cd /path/to/api && node src/import-pokepulse.js
@@ -28,7 +29,17 @@ if (!API_KEY) {
   process.exit(1);
 }
 
+// Must match POKEPULSE_SET_OVERRIDES in pricing.js
+const POKEPULSE_SET_OVERRIDES = {
+  'me01': 'm1', 'me02': 'me02', 'MEP': 'mep',
+  'sv10.5w': 'rsv10pt5', 'sv10.5b': 'zsv10pt5',
+  'swsh7.5': 'cel25', 'swsh10.5': 'pgo',
+  'sm35': 'sm3pt5',
+  'base1': 'bsu', 'base5': 'tr',
+};
+
 function convertSetIdToPokePulse(tcgdexSetId) {
+  if (POKEPULSE_SET_OVERRIDES[tcgdexSetId]) return POKEPULSE_SET_OVERRIDES[tcgdexSetId];
   if (tcgdexSetId.includes('.')) {
     const parts = tcgdexSetId.split('.');
     const prefix = parts[0].replace(/(\D+)0*(\d+)/, '$1$2');
@@ -89,6 +100,142 @@ async function cacheCard(card, setId) {
 }
 
 const delay = (ms) => new Promise(r => setTimeout(r, ms));
+
+// Bulk search: fetch ALL cards for a set in one call (no cardName filter)
+async function searchCatalogueBulk(setId, page = 1) {
+  const response = await fetch(CATALOGUE_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-API-Key': API_KEY
+    },
+    body: JSON.stringify({
+      setId,
+      excludeGraded: true,
+      limit: 500,
+      page
+    })
+  });
+  if (!response.ok) throw new Error(`Catalogue API error: ${response.status}`);
+  return response.json();
+}
+
+// Bulk-cache all vending-relevant sets in minimal API calls
+async function bulkImportAllSets() {
+  console.log('📦 Bulk PokePulse Cache — fetching all vending sets\n');
+
+  // Get all distinct pokepulse_set_id values from card_index
+  const setsResult = await pool.query(
+    `SELECT DISTINCT pokepulse_set_id as pp_set_id, set_id, set_name,
+            COUNT(DISTINCT name) as card_count
+     FROM card_index
+     WHERE pokepulse_set_id IS NOT NULL
+     GROUP BY pokepulse_set_id, set_id, set_name
+     ORDER BY set_id`
+  );
+
+  const sets = setsResult.rows;
+  console.log(`Found ${sets.length} sets in card_index\n`);
+
+  let totalApiCalls = 0;
+  let totalCached = 0;
+  let setsProcessed = 0;
+  let setsSkipped = 0;
+
+  for (const set of sets) {
+    const ppSetId = set.pp_set_id;
+
+    // Check existing cache count
+    const existing = await pool.query(
+      'SELECT COUNT(*) FROM pokepulse_catalogue WHERE set_id = $1 AND material IS NULL',
+      [ppSetId]
+    );
+    const cachedCount = parseInt(existing.rows[0].count);
+
+    // Skip if already well-cached
+    if (cachedCount >= set.card_count * 0.8) {
+      console.log(`  SKIP ${set.set_name} (${ppSetId}) — ${cachedCount}/${set.card_count} already cached`);
+      setsSkipped++;
+      continue;
+    }
+
+    // Skip sets marked as unsupported
+    const skipCheck = await pool.query(
+      "SELECT 1 FROM pokepulse_catalogue WHERE product_id = $1",
+      [`SKIP_${ppSetId}`]
+    );
+    if (skipCheck.rows.length > 0) {
+      console.log(`  SKIP ${set.set_name} (${ppSetId}) — marked unsupported`);
+      setsSkipped++;
+      continue;
+    }
+
+    console.log(`  Fetching ${set.set_name} (${set.set_id} → ${ppSetId})...`);
+
+    let page = 1;
+    let setCached = 0;
+    let hasMore = true;
+
+    while (hasMore) {
+      // Safety: stop before hitting daily limit
+      if (totalApiCalls >= 900) {
+        console.log(`\n⚠️  Stopping — approaching 1000 API calls/day limit (${totalApiCalls} used)`);
+        hasMore = false;
+        break;
+      }
+
+      try {
+        const data = await searchCatalogueBulk(ppSetId, page);
+        totalApiCalls++;
+
+        const cards = extractCardsArray(data);
+
+        if (!cards || cards.length === 0) {
+          if (page === 1) {
+            console.log(`    WARNING: 0 results — "${ppSetId}" may not exist in PokePulse`);
+          }
+          break;
+        }
+
+        for (const card of cards) {
+          const ok = await cacheCard(card, ppSetId);
+          if (ok) setCached++;
+        }
+
+        const pagination = data.pagination;
+        hasMore = pagination?.hasNextPage === true;
+
+        console.log(`    Page ${page}: ${cards.length} cards (total: ${pagination?.totalResults || '?'})`);
+        page++;
+
+        if (hasMore) await delay(1000);
+      } catch (err) {
+        if (err.message.includes('429')) {
+          console.log(`    Rate limited. Waiting 60s...`);
+          await delay(60000);
+        } else {
+          console.log(`    ERROR: ${err.message}`);
+          break;
+        }
+      }
+    }
+
+    if (totalApiCalls >= 900) break;
+
+    console.log(`    Cached ${setCached} products\n`);
+    totalCached += setCached;
+    setsProcessed++;
+
+    await delay(2000);
+  }
+
+  console.log(`\n════════════════════════════════════`);
+  console.log(`Bulk import complete:`);
+  console.log(`  Sets processed: ${setsProcessed}`);
+  console.log(`  Sets skipped (already cached): ${setsSkipped}`);
+  console.log(`  API calls used: ${totalApiCalls}`);
+  console.log(`  Products cached: ${totalCached}`);
+}
 
 // Fetch available sets from PokePulse
 async function fetchPokePulseSets() {
@@ -454,6 +601,13 @@ async function run() {
   // Sets mode — list available PokePulse sets
   if (args.includes('--sets')) {
     await showSets();
+    await pool.end();
+    return;
+  }
+
+  // Bulk mode — fetch all vending sets in minimal API calls
+  if (args.includes('--bulk')) {
+    await bulkImportAllSets();
     await pool.end();
     return;
   }
