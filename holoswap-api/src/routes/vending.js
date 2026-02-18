@@ -395,13 +395,16 @@ router.post('/lookup', async (req, res) => {
           success: true,
           lookup: {
             id: insertResult.rows[0].id,
-            name: match.name,
-            set_id: match.set_id,
+            card_name: match.name,
             set_name: match.set_name,
+            set_id: match.set_id,
             card_number: parsed.cardNumber,
             image_url: match.image_url,
             rarity: match.rarity,
-            pricing: pricingData,
+            market_price: pricingData?.marketPrice || null,
+            currency: pricingData?.currency || 'GBP',
+            conditions: pricingData?.conditions || null,
+            trends: pricingData?.trends || null,
           }
         });
       }
@@ -466,13 +469,16 @@ router.post('/lookup', async (req, res) => {
           success: true,
           lookup: {
             id: insertResult.rows[0].id,
-            name: match.name,
-            set_id: match.set_id,
+            card_name: match.name,
             set_name: match.set_name,
+            set_id: match.set_id,
             card_number: parsed.cardNumber,
             image_url: match.image_url,
             rarity: match.rarity,
-            pricing: pricingData,
+            market_price: pricingData?.marketPrice || null,
+            currency: pricingData?.currency || 'GBP',
+            conditions: pricingData?.conditions || null,
+            trends: pricingData?.trends || null,
           }
         });
       }
@@ -532,13 +538,16 @@ router.post('/lookup', async (req, res) => {
           success: true,
           lookup: {
             id: insertResult.rows[0].id,
-            name: match.name,
-            set_id: match.set_id,
+            card_name: match.name,
             set_name: match.set_name,
+            set_id: match.set_id,
             card_number: prefixedCard,
             image_url: match.image_url,
             rarity: match.rarity,
-            pricing: pricingData,
+            market_price: pricingData?.marketPrice || null,
+            currency: pricingData?.currency || 'GBP',
+            conditions: pricingData?.conditions || null,
+            trends: pricingData?.trends || null,
           }
         });
       }
@@ -947,7 +956,9 @@ router.post('/buy-lookup', auth, requireVendorOrAdmin, async (req, res) => {
             image_url: match.image_url,
             rarity: match.rarity,
             market_price: pricingData?.marketPrice || null,
-            pricing: pricingData,
+            currency: pricingData?.currency || 'GBP',
+            conditions: pricingData?.conditions || null,
+            trends: pricingData?.trends || null,
           }
         });
       }
@@ -1022,7 +1033,9 @@ router.post('/buy-lookup', auth, requireVendorOrAdmin, async (req, res) => {
             image_url: match.image_url,
             rarity: match.rarity,
             market_price: pricingData?.marketPrice || null,
-            pricing: pricingData,
+            currency: pricingData?.currency || 'GBP',
+            conditions: pricingData?.conditions || null,
+            trends: pricingData?.trends || null,
           }
         });
       }
