@@ -85,6 +85,30 @@ async function searchCatalogue(pokePulseSetId, cardName) {
   return response.json();
 }
 
+// Search PokePulse catalogue for graded/slab cards (includes all materials)
+async function searchCatalogueGraded(pokePulseSetId, cardName) {
+  const url = 'https://catalogueservicev2-production.up.railway.app/api/cards/search';
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-API-Key': process.env.POKEPULSE_CATALOGUE_KEY
+    },
+    body: JSON.stringify({
+      ...(pokePulseSetId && { setId: pokePulseSetId }),
+      cardName: cardName,
+      limit: 30
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error(`Catalogue API error: ${response.status}`);
+  }
+
+  return response.json();
+}
+
 // Get market data from PokePulse
 async function getMarketData(productId) {
   const url = 'https://marketdataapi-production.up.railway.app/api/market-data/batch';
@@ -380,6 +404,34 @@ async function findCachedProduct(pokePulseSetId, cardNumber) {
   }
 }
 
+// Look up cached graded product_ids from DB
+async function findCachedGradedProducts(pokePulseSetId, cardNumber) {
+  try {
+    const result = await pool.query(
+      `SELECT product_id, card_name, card_number, material
+       FROM pokepulse_catalogue
+       WHERE set_id = $1 AND card_number = $2 AND material IS NOT NULL
+       ORDER BY material`,
+      [pokePulseSetId, cardNumber]
+    );
+    if (result.rows.length > 0) return result.rows;
+
+    // Fuzzy match
+    const fuzzy = await pool.query(
+      `SELECT product_id, card_name, card_number, material
+       FROM pokepulse_catalogue
+       WHERE set_id = $1 AND card_number LIKE $2 AND material IS NOT NULL
+       ORDER BY material`,
+      [pokePulseSetId, cardNumber + '%']
+    );
+    if (fuzzy.rows.length > 0) return fuzzy.rows;
+    return [];
+  } catch (err) {
+    console.error('[PP Cache] Graded lookup error:', err.message);
+    return [];
+  }
+}
+
 // Cache catalogue results to DB (upserts all cards from a search)
 async function cacheCatalogueResults(pokePulseSetId, cardsArray) {
   if (!cardsArray || cardsArray.length === 0) return;
@@ -478,12 +530,15 @@ module.exports = {
   searchCatalogue,
   getMarketData,
   findMatchingCard,
+  matchCardNumber,
   extractCardsArray,
   extractPricingRecords,
   formatPricingData,
   analyzeBuyRecommendation,
   savePriceHistory,
   findCachedProduct,
+  findCachedGradedProducts,
   cacheCatalogueResults,
-  getCatalogueStats
+  getCatalogueStats,
+  searchCatalogueGraded
 };
