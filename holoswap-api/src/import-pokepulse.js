@@ -36,6 +36,213 @@ const POKEPULSE_SET_OVERRIDES = {
   'swsh7.5': 'cel25', 'swsh10.5': 'pgo',
   'sm35': 'sm3pt5',
   'base1': 'bsu', 'base5': 'tr',
+  '2021swsh': 'mcd21',
+};
+
+// Complete PokePulse set list (English sets only, sourced directly from PokePulse)
+// This is the authoritative list — bulk import uses this, NOT card_index
+const POKEPULSE_SETS = {
+  // Scarlet & Violet era
+  'sv1':       'Scarlet & Violet',
+  'sv2':       'Paldea Evolved',
+  'sv3':       'Obsidian Flames',
+  'sv3pt5':    'Scarlet & Violet 151',
+  'sv4':       'Paradox Rift',
+  'sv4pt5':    'Paldean Fates',
+  'sv5':       'Temporal Forces',
+  'sv6':       'Twilight Masquerade',
+  'sv6pt5':    'Shrouded Fable',
+  'sv7':       'Stellar Crown',
+  'sv8':       'Surging Sparks',
+  'sv8pt5':    'Prismatic Evolutions',
+  'sv9':       'Journey Together',
+  'sv10':      'Destined Rivals',
+  'rsv10pt5':  'White Flare',
+  'zsv10pt5':  'Black Bolt',
+  'svp':       'Scarlet & Violet Promos',
+  'sve':       'Scarlet & Violet Energies',
+  // Sword & Shield era
+  'swsh1':     'Sword & Shield',
+  'swsh2':     'Rebel Clash',
+  'swsh3':     'Darkness Ablaze',
+  'swsh3pt5':  'Champion\'s Path',
+  'swsh4':     'Vivid Voltage',
+  'swsh4pt5':  'Shining Fates',
+  'swsh5':     'Battle Styles',
+  'swsh6':     'Chilling Reign',
+  'swsh7':     'Evolving Skies',
+  'cel25':     'Celebrations',
+  'swsh8':     'Fusion Strike',
+  'swsh9':     'Brilliant Stars',
+  'swsh9tg':   'Brilliant Stars (Trainer Gallery)',
+  'swsh10':    'Astral Radiance',
+  'pgo':       'Pokémon GO',
+  'swsh11':    'Lost Origin',
+  'swsh12':    'Silver Tempest',
+  'swsh12pt5': 'Crown Zenith',
+  'swshp':     'Sword & Shield Promos',
+  // Sun & Moon era
+  'sm1':       'Sun & Moon',
+  'sm2':       'Guardians Rising',
+  'sm3':       'Burning Shadows',
+  'sm3pt5':    'Shining Legends',
+  'sm4':       'Crimson Invasion',
+  'sm5':       'Ultra Prism',
+  'sm6':       'Forbidden Light',
+  'sm7':       'Celestial Storm',
+  'sm7pt5':    'Dragon Majesty',
+  'sm8':       'Lost Thunder',
+  'sm9':       'Team Up',
+  'sm10':      'Unbroken Bonds',
+  'sm11':      'Unified Minds',
+  'sm11pt5':   'Hidden Fates',
+  'sm12':      'Cosmic Eclipse',
+  'sma':       'Hidden Fates (Shiny Vault)',
+  'smp':       'Sun & Moon Promos',
+  // XY era
+  'xy0':       'Kalos Starter Set',
+  'xy1':       'XY',
+  'xy2':       'Flashfire',
+  'xy3':       'Furious Fists',
+  'xy4':       'Phantom Forces',
+  'xy5':       'Primal Clash',
+  'xy6':       'Roaring Skies',
+  'xy7':       'Ancient Origins',
+  'xy8':       'BREAKthrough',
+  'xy9':       'BREAKpoint',
+  'xy10':      'Fates Collide',
+  'xy11':      'Steam Siege',
+  'xy12':      'Evolutions',
+  'xyp':       'XY Promos',
+  'g1':        'Generations',
+  'gen':       'Generations (Radiant Collection)',
+  'dc1':       'Double Crisis',
+  // Black & White era
+  'bw1':       'Black & White',
+  'bw2':       'Emerging Powers',
+  'bw3':       'Noble Victories',
+  'bw4':       'Next Destinies',
+  'bw5':       'Dark Explorers',
+  'bw6':       'Dragons Exalted',
+  'bw7':       'Boundaries Crossed',
+  'bw8':       'Plasma Storm',
+  'bw9':       'Plasma Freeze',
+  'bw10':      'Plasma Blast',
+  'bw11':      'Legendary Treasures',
+  'bwp':       'Black & White Promos',
+  'dv1':       'Dragon Vault',
+  'ltr':       'Legendary Treasures (Radiant Collection)',
+  // HeartGold & SoulSilver era
+  'hgss1':     'HeartGold & SoulSilver',
+  'hgss2':     'Unleashed',
+  'hgss3':     'Undaunted',
+  'hgss4':     'Triumphant',
+  'hsp':       'HeartGold & SoulSilver Promos',
+  'col1':      'Call of Legends',
+  // Diamond & Pearl / Platinum era
+  'dp1':       'Diamond & Pearl',
+  'dp2':       'Mysterious Treasures',
+  'dp3':       'Secret Wonders',
+  'dp4':       'Great Encounters',
+  'dp5':       'Majestic Dawn',
+  'dp6':       'Legends Awakened',
+  'dp7':       'Stormfront',
+  'dpp':       'Diamond & Pearl Promos',
+  'pl1':       'Platinum',
+  'pl2':       'Rising Rivals',
+  'pl3':       'Supreme Victors',
+  'pl4':       'Arceus',
+  // EX era
+  'ex1':       'EX Ruby & Sapphire',
+  'ex2':       'EX Sandstorm',
+  'ex3':       'EX Dragon',
+  'ex4':       'EX Team Magma vs Team Aqua',
+  'ex5':       'EX Hidden Legends',
+  'ex6':       'EX FireRed & LeafGreen',
+  'ex8':       'EX Deoxys',
+  'ex9':       'EX Emerald',
+  'ex10':      'EX Unseen Forces',
+  'ex11':      'EX Delta Species',
+  'ex12':      'EX Legend Maker',
+  'ex13':      'EX Holon Phantoms',
+  'ex14':      'EX Crystal Guardians',
+  'ex15':      'EX Dragon Frontiers',
+  'ex16':      'EX Power Keepers',
+  // e-Card era
+  'ecard1':    'Expedition Base Set',
+  'ecard2':    'Aquapolis',
+  'ecard3':    'Skyridge',
+  // Base / Classic era
+  'bsu':       'Base Set Unlimited',
+  'bs1s':      'Base Set (1st Edition)',
+  'bss':       'Base Set (Shadowless)',
+  'base2':     'Jungle',
+  'base3':     'Fossil',
+  'base4':     'Base Set 2',
+  'tr':        'Team Rocket',
+  'base6':     'Legendary Collection',
+  'basep':     'Wizards of the Coast Promos',
+  'gym1':      'Gym Heroes',
+  'gym2':      'Gym Challenge',
+  'neo1':      'Neo Genesis',
+  'neo2':      'Neo Discovery',
+  'neo3':      'Neo Revelation',
+  'neo4':      'Neo Destiny',
+  'si':        'Southern Islands',
+  // Mega Evolution
+  'm1':        'Mega Evolution',
+  'me02':      'Phantasmal Flames',
+  'me2pt5':    'Ascended Heroes',
+  'me3':       'Perfect Order',
+  'mep':       'Mega Evolutions Promos',
+  // McDonald's & misc
+  'mcd21':     'McDonald\'s Collection 2021',
+  'mcd22':     'McDonald\'s Match Battle 2022',
+  'm23':       'McDonald\'s Match Battle 2023',
+  'm24':       'McDonald\'s Dragon Discovery 2024',
+  'm11':       'McDonald\'s Collection 2011',
+  'm12':       'McDonald\'s Collection 2012',
+  'det1':      'Detective Pikachu',
+  'ru1':       'Pokémon Rumble',
+  'np':        'Nintendo Promos',
+  'bp':        'Best of Game',
+  'pcp':       'Poké Card Creator Pack',
+  // Play! Pokemon Prize Packs
+  'pp1':       'Play! Pokémon Prize Pack Series One',
+  'pp2':       'Play! Pokémon Prize Pack Series Two',
+  'pp3':       'Play! Pokémon Prize Pack Series Three',
+  'pp4':       'Play! Pokémon Prize Pack Series Four',
+  'pp5':       'Play! Pokémon Prize Pack Series Five',
+  'pp6':       'Play! Pokémon Prize Pack Series Six',
+  'pp7':       'Play! Pokémon Prize Pack Series Seven',
+  // POP Series
+  'pop1':      'POP Series 1',
+  'pop2':      'POP Series 2',
+  'pop3':      'POP Series 3',
+  'pop4':      'POP Series 4',
+  'pop5':      'POP Series 5',
+  'pop6':      'POP Series 6',
+  'pop7':      'POP Series 7',
+  'pop8':      'POP Series 8',
+  'pop9':      'POP Series 9',
+  // Holiday / special
+  'hc22':      'Holiday Calendar 2022',
+  'hc23':      'Holiday Calendar 2023',
+  'hc24':      'Holiday Calendar 2024',
+  'hc25':      'Holiday Calendar 2025',
+  'tot22':     'Trick or Trade 2022',
+  'tot23':     'Trick or Trade 2023',
+  'tot24':     'Trick or Trade 2024',
+  'fbb':       'My First Battle (Bulbasaur)',
+  'fbc':       'My First Battle (Charmander)',
+  'fbp':       'My First Battle (Pikachu)',
+  'fbs':       'My First Battle (Squirtle)',
+  'clb':       'Pokémon TCG Classic (Blastoise)',
+  'clc':       'Pokémon TCG Classic (Charizard)',
+  'clv':       'Pokémon TCG Classic (Venusaur)',
+  'misc':      'Miscellaneous Products',
+  'mp':        'Miscellaneous Promos',
+  'si1':       'Countdown Calendar',
 };
 
 function convertSetIdToPokePulse(tcgdexSetId) {
@@ -120,31 +327,20 @@ async function searchCatalogueBulk(setId, page = 1) {
   return response.json();
 }
 
-// Bulk-cache all vending-relevant sets in minimal API calls
+// Bulk-cache all sets using the PokePulse set list directly (no card_index dependency)
 async function bulkImportAllSets() {
-  console.log('📦 Bulk PokePulse Cache — fetching all vending sets\n');
+  console.log('📦 Bulk PokePulse Cache — fetching all sets from PokePulse set list\n');
 
-  // Get all distinct pokepulse_set_id values from card_index
-  const setsResult = await pool.query(
-    `SELECT DISTINCT pokepulse_set_id as pp_set_id, set_id, set_name,
-            COUNT(DISTINCT name) as card_count
-     FROM card_index
-     WHERE pokepulse_set_id IS NOT NULL
-     GROUP BY pokepulse_set_id, set_id, set_name
-     ORDER BY set_id`
-  );
-
-  const sets = setsResult.rows;
-  console.log(`Found ${sets.length} sets in card_index\n`);
+  const setEntries = Object.entries(POKEPULSE_SETS);
+  console.log(`${setEntries.length} PokePulse sets to process\n`);
 
   let totalApiCalls = 0;
   let totalCached = 0;
   let setsProcessed = 0;
   let setsSkipped = 0;
+  let setsFailed = 0;
 
-  for (const set of sets) {
-    const ppSetId = set.pp_set_id;
-
+  for (const [ppSetId, setName] of setEntries) {
     // Check existing cache count
     const existing = await pool.query(
       'SELECT COUNT(*) FROM pokepulse_catalogue WHERE set_id = $1 AND material IS NULL',
@@ -152,9 +348,9 @@ async function bulkImportAllSets() {
     );
     const cachedCount = parseInt(existing.rows[0].count);
 
-    // Skip if already well-cached
-    if (cachedCount >= set.card_count * 0.8) {
-      console.log(`  SKIP ${set.set_name} (${ppSetId}) — ${cachedCount}/${set.card_count} already cached`);
+    // Skip if already has cached cards (any amount means we've fetched it before)
+    if (cachedCount > 0) {
+      console.log(`  SKIP ${setName} (${ppSetId}) — ${cachedCount} already cached`);
       setsSkipped++;
       continue;
     }
@@ -165,12 +361,12 @@ async function bulkImportAllSets() {
       [`SKIP_${ppSetId}`]
     );
     if (skipCheck.rows.length > 0) {
-      console.log(`  SKIP ${set.set_name} (${ppSetId}) — marked unsupported`);
+      console.log(`  SKIP ${setName} (${ppSetId}) — marked unsupported`);
       setsSkipped++;
       continue;
     }
 
-    console.log(`  Fetching ${set.set_name} (${set.set_id} → ${ppSetId})...`);
+    console.log(`  Fetching ${setName} (${ppSetId})...`);
 
     let page = 1;
     let setCached = 0;
@@ -192,7 +388,8 @@ async function bulkImportAllSets() {
 
         if (!cards || cards.length === 0) {
           if (page === 1) {
-            console.log(`    WARNING: 0 results — "${ppSetId}" may not exist in PokePulse`);
+            console.log(`    0 results for "${ppSetId}"`);
+            setsFailed++;
           }
           break;
         }
@@ -215,6 +412,7 @@ async function bulkImportAllSets() {
           await delay(60000);
         } else {
           console.log(`    ERROR: ${err.message}`);
+          setsFailed++;
           break;
         }
       }
@@ -233,6 +431,7 @@ async function bulkImportAllSets() {
   console.log(`Bulk import complete:`);
   console.log(`  Sets processed: ${setsProcessed}`);
   console.log(`  Sets skipped (already cached): ${setsSkipped}`);
+  console.log(`  Sets with 0 results: ${setsFailed}`);
   console.log(`  API calls used: ${totalApiCalls}`);
   console.log(`  Products cached: ${totalCached}`);
 }

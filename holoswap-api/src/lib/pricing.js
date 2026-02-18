@@ -67,6 +67,8 @@ const POKEPULSE_SET_OVERRIDES = {
   // Base sets
   'base1': 'bsu',        // Base Set (PokePulse uses bsu for unlimited)
   'base5': 'tr',         // Team Rocket (PokePulse base5 = different set)
+  // McDonald's
+  '2021swsh': 'mcd21',   // McDonald's Collection 2021
 };
 
 function convertSetIdToPokePulse(tcgdexSetId) {
