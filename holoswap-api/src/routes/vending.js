@@ -7,8 +7,7 @@ const {
   convertSetIdToPokePulse, searchCatalogue, getMarketData,
   findMatchingCard, matchCardNumber, extractCardsArray, extractPricingRecords, formatPricingData,
   analyzeBuyRecommendation, savePriceHistory,
-  findCachedProduct, findCachedGradedProducts, cacheCatalogueResults, getCatalogueStats,
-  searchCatalogueGraded
+  findCachedProduct, cacheCatalogueResults, getCatalogueStats,
 } = require('../lib/pricing');
 
 const router = Router();
@@ -313,106 +312,6 @@ async function getCardPricing(setId, cardNumber, cardName) {
   return formatPricingData(pricingRecords, productId, cached);
 }
 
-// Get slab/graded pricing for a card (PSA, CGC, BGS)
-// Parse grading company and grade from product_id
-// Format: card:setId|cardNumber|material|...|COMPANY|grade
-const SLAB_COMPANIES = ['PSA', 'ACE', 'TAG', 'CGC'];
-const SLAB_GRADE = '10';
-
-function parseGradeInfo(productId) {
-  const parts = productId.split('|');
-  if (parts.length >= 6) {
-    const company = parts[parts.length - 2];
-    const grade = parts[parts.length - 1];
-    if (company && grade && company !== 'null') {
-      return { company, grade };
-    }
-  }
-  return null;
-}
-
-async function getSlabPricing(setId, cardNumber, cardName) {
-  try {
-    const ppRow = await pool.query('SELECT pokepulse_set_id FROM card_index WHERE set_id = $1 AND pokepulse_set_id IS NOT NULL LIMIT 1', [setId]);
-    const pokePulseSetId = ppRow.rows[0]?.pokepulse_set_id || convertSetIdToPokePulse(setId);
-
-    // Step 1: Check DB cache for graded products
-    let gradedProducts = await findCachedGradedProducts(pokePulseSetId, cardNumber);
-    console.log(`[Slab] DB cache: ${gradedProducts.length} graded entries for ${pokePulseSetId} #${cardNumber}`);
-
-    // Step 2: If no cache, search PokePulse catalogue (includes graded)
-    if (gradedProducts.length === 0) {
-      checkRateLimit();
-      console.log(`[Slab] Catalogue search: setId=${pokePulseSetId}, cardName=${cardName}`);
-      const catalogueData = await searchCatalogueGraded(pokePulseSetId, cardName);
-      const cardsArray = extractCardsArray(catalogueData);
-
-      if (cardsArray && cardsArray.length > 0) {
-        console.log(`[Slab] Catalogue returned ${cardsArray.length} items`);
-        cacheCatalogueResults(pokePulseSetId, cardsArray).catch(err =>
-          console.error('[Slab] Cache save error:', err.message)
-        );
-
-        gradedProducts = cardsArray.filter(c =>
-          c.card_number && matchCardNumber(c.card_number, cardNumber)
-        );
-        console.log(`[Slab] After card number filter: ${gradedProducts.length} items for #${cardNumber}`);
-      }
-    }
-
-    // Filter to target companies + grade 10 only
-    gradedProducts = gradedProducts.filter(p => {
-      const info = parseGradeInfo(p.product_id);
-      return info && info.grade === SLAB_GRADE && SLAB_COMPANIES.includes(info.company);
-    });
-
-    if (gradedProducts.length === 0) {
-      console.log(`[Slab] No grade-10 products for ${cardName} #${cardNumber}`);
-      return [];
-    }
-
-    console.log(`[Slab] Fetching market data for: ${gradedProducts.map(p => p.product_id).join(', ')}`);
-
-    // Step 3: Batch market data call for all graded products
-    const productIds = gradedProducts.map(p => p.product_id);
-    checkRateLimit();
-    const marketData = await getMarketData(productIds);
-    const data = marketData?.data || marketData || {};
-
-    const slabs = [];
-    for (const product of gradedProducts) {
-      const records = data[product.product_id];
-      if (!records || records.length === 0) continue;
-
-      const record = records.find(r => parseFloat(r.value) > 0) || records[0];
-      const price = parseFloat(record.value) || 0;
-      const currency = record.currency === '£' ? 'GBP' : (record.currency || 'GBP');
-      const info = parseGradeInfo(product.product_id);
-
-      if (price > 0) {
-        console.log(`[Slab] ${info.company} ${info.grade}: £${price}`);
-        slabs.push({
-          grade: `${info.company} ${info.grade}`,
-          market_price: price,
-          currency: currency,
-          trends: record.trends ? {
-            '7day': {
-              percentage: record.trends['7d']?.percentage_change || 0,
-              previous: record.trends['7d']?.previous_value || 0,
-            }
-          } : null,
-        });
-      }
-    }
-
-    console.log(`[Slab] Returning ${slabs.length} slabs`);
-    return slabs;
-  } catch (err) {
-    console.error('[Slab] Error:', err.message);
-    return [];
-  }
-}
-
 // ============================================================
 // PUBLIC: POST /api/vending/lookup
 // Customer submits card input, gets price back
@@ -479,10 +378,10 @@ router.post('/lookup', async (req, res) => {
       if (matches.rows.length === 1) {
         const match = matches.rows[0];
         let pricingData = null;
-        let slabData = [];
+
         try {
           pricingData = await getCardPricing(match.set_id, parsed.cardNumber, match.name);
-          slabData = await getSlabPricing(match.set_id, parsed.cardNumber, match.name);
+
         } catch (pricingErr) {
           console.error('[Vending] Pricing error:', pricingErr.message);
         }
@@ -508,7 +407,7 @@ router.post('/lookup', async (req, res) => {
             currency: pricingData?.currency || 'GBP',
             conditions: pricingData?.conditions || null,
             trends: pricingData?.trends || null,
-            slab_pricing: slabData || [],
+
           }
         });
       }
@@ -544,10 +443,10 @@ router.post('/lookup', async (req, res) => {
       if (possibleSets.length === 1) {
         const match = possibleSets[0];
         let pricingData = null;
-        let slabData = [];
+
         try {
           pricingData = await getCardPricing(match.set_id, parsed.cardNumber, match.name);
-          slabData = await getSlabPricing(match.set_id, parsed.cardNumber, match.name);
+
         } catch (pricingErr) {
           console.error('[Vending] Pricing error:', pricingErr.message);
         }
@@ -585,7 +484,7 @@ router.post('/lookup', async (req, res) => {
             currency: pricingData?.currency || 'GBP',
             conditions: pricingData?.conditions || null,
             trends: pricingData?.trends || null,
-            slab_pricing: slabData || [],
+
           }
         });
       }
@@ -628,10 +527,10 @@ router.post('/lookup', async (req, res) => {
       if (pfMatches.rows.length === 1) {
         const match = pfMatches.rows[0];
         let pricingData = null;
-        let slabData = [];
+
         try {
           pricingData = await getCardPricing(match.set_id, prefixedCard, match.name);
-          slabData = await getSlabPricing(match.set_id, prefixedCard, match.name);
+
         } catch (pricingErr) {
           console.error('[Vending] Pricing error:', pricingErr.message);
         }
@@ -657,7 +556,7 @@ router.post('/lookup', async (req, res) => {
             currency: pricingData?.currency || 'GBP',
             conditions: pricingData?.conditions || null,
             trends: pricingData?.trends || null,
-            slab_pricing: slabData || [],
+
           }
         });
       }
@@ -691,10 +590,10 @@ router.post('/lookup', async (req, res) => {
 
     // Get pricing
     let pricingData = null;
-    let slabData = [];
+
     try {
       pricingData = await getCardPricing(setId, parsed.cardNumber, card.name);
-      slabData = await getSlabPricing(setId, parsed.cardNumber, card.name);
+
     } catch (pricingErr) {
       console.error('[Vending] Pricing error:', pricingErr.message);
     }
@@ -733,7 +632,7 @@ router.post('/lookup', async (req, res) => {
         currency: pricingData?.currency || 'GBP',
         conditions: pricingData?.conditions || null,
         trends: pricingData?.trends || null,
-        slab_pricing: slabData || [],
+
       }
     });
 
@@ -772,10 +671,10 @@ router.post('/lookup-card', async (req, res) => {
     }
 
     let pricingData = null;
-    let slabData = [];
+
     try {
       pricingData = await getCardPricing(set_id, local_id, name);
-      slabData = await getSlabPricing(set_id, local_id, name);
+
     } catch (pricingErr) {
       console.error('[Vending] Pricing error:', pricingErr.message);
     }
@@ -814,7 +713,7 @@ router.post('/lookup-card', async (req, res) => {
         currency: pricingData?.currency || 'GBP',
         conditions: pricingData?.conditions || null,
         trends: pricingData?.trends || null,
-        slab_pricing: slabData || [],
+
       }
     });
 
@@ -1042,10 +941,10 @@ router.post('/buy-lookup', auth, requireVendorOrAdmin, async (req, res) => {
       if (matches.rows.length === 1) {
         const match = matches.rows[0];
         let pricingData = null;
-        let slabData = [];
+
         try {
           pricingData = await getCardPricing(match.set_id, parsed.cardNumber, match.name);
-          slabData = await getSlabPricing(match.set_id, parsed.cardNumber, match.name);
+
           if (pricingData) {
             savePriceHistory(match.set_id, parsed.cardNumber, match.name, pricingData).catch(err =>
               console.error('[Vending] Price history save failed:', err)
@@ -1077,7 +976,7 @@ router.post('/buy-lookup', auth, requireVendorOrAdmin, async (req, res) => {
             currency: pricingData?.currency || 'GBP',
             conditions: pricingData?.conditions || null,
             trends: pricingData?.trends || null,
-            slab_pricing: slabData || [],
+
           }
         });
       }
@@ -1122,10 +1021,10 @@ router.post('/buy-lookup', auth, requireVendorOrAdmin, async (req, res) => {
       if (pfMatches.rows.length === 1) {
         const match = pfMatches.rows[0];
         let pricingData = null;
-        let slabData = [];
+
         try {
           pricingData = await getCardPricing(match.set_id, prefixedCard, match.name);
-          slabData = await getSlabPricing(match.set_id, prefixedCard, match.name);
+
           if (pricingData) {
             savePriceHistory(match.set_id, prefixedCard, match.name, pricingData).catch(err =>
               console.error('[Vending] Price history save failed:', err)
@@ -1157,7 +1056,7 @@ router.post('/buy-lookup', auth, requireVendorOrAdmin, async (req, res) => {
             currency: pricingData?.currency || 'GBP',
             conditions: pricingData?.conditions || null,
             trends: pricingData?.trends || null,
-            slab_pricing: slabData || [],
+
           }
         });
       }
@@ -1190,10 +1089,10 @@ router.post('/buy-lookup', auth, requireVendorOrAdmin, async (req, res) => {
     }
 
     let pricingData = null;
-    let slabData = [];
+
     try {
       pricingData = await getCardPricing(setId, parsed.cardNumber, card.name);
-      slabData = await getSlabPricing(setId, parsed.cardNumber, card.name);
+
       // Save price snapshot to history
       if (pricingData) {
         savePriceHistory(setId, parsed.cardNumber, card.name, pricingData).catch(err =>
@@ -1242,7 +1141,7 @@ router.post('/buy-lookup', auth, requireVendorOrAdmin, async (req, res) => {
         lastSoldDate: pricingData?.lastSoldDate || null,
         lastSoldPrice: pricingData?.lastSoldPrice || null,
         trends: pricingData?.trends || null,
-        slab_pricing: slabData || [],
+
         recommendation,
       }
     });
@@ -1271,10 +1170,10 @@ router.post('/buy-lookup-card', auth, requireVendorOrAdmin, async (req, res) => 
     }
 
     let pricingData = null;
-    let slabData = [];
+
     try {
       pricingData = await getCardPricing(set_id, local_id, name);
-      slabData = await getSlabPricing(set_id, local_id, name);
+
       // Save price snapshot to history
       if (pricingData) {
         savePriceHistory(set_id, local_id, name, pricingData).catch(err =>
@@ -1322,7 +1221,7 @@ router.post('/buy-lookup-card', auth, requireVendorOrAdmin, async (req, res) => 
         lastSoldDate: pricingData?.lastSoldDate || null,
         lastSoldPrice: pricingData?.lastSoldPrice || null,
         trends: pricingData?.trends || null,
-        slab_pricing: slabData || [],
+
         recommendation,
       }
     });
