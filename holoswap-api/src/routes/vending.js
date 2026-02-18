@@ -490,6 +490,65 @@ router.post('/lookup', async (req, res) => {
     // Set + number mode
     const setId = await resolveSetCode(parsed.setCode);
     if (!setId) {
+      // Fallback: maybe "set code" is actually a card number prefix (e.g. "SV 107" → SV107)
+      const prefixedCard = parsed.setCode + parsed.cardNumber;
+      const totalMatch = input.trim().match(/\/\s*[A-Za-z]*\s*(\d+)$/);
+      const prefixedTotal = totalMatch ? parsed.setCode + totalMatch[1] : null;
+
+      let pfQuery, pfParams;
+      if (prefixedTotal) {
+        pfQuery = `SELECT * FROM card_index WHERE UPPER(local_id) = UPPER($1)
+                   AND set_id IN (SELECT set_id FROM card_index WHERE UPPER(local_id) = UPPER($2))
+                   ORDER BY set_id`;
+        pfParams = [prefixedCard, prefixedTotal];
+      } else {
+        pfQuery = 'SELECT * FROM card_index WHERE UPPER(local_id) = UPPER($1) ORDER BY set_id';
+        pfParams = [prefixedCard];
+      }
+      const pfMatches = await pool.query(pfQuery, pfParams);
+
+      if (pfMatches.rows.length === 1) {
+        const match = pfMatches.rows[0];
+        let pricingData = null;
+        try {
+          pricingData = await getCardPricing(match.set_id, prefixedCard, match.name);
+        } catch (pricingErr) {
+          console.error('[Vending] Pricing error:', pricingErr.message);
+        }
+
+        const insertResult = await pool.query(
+          `INSERT INTO vending_lookups (raw_input, set_code, card_number, card_name, set_name, set_id, image_url, market_price, currency, ip_address, vendor_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+           RETURNING id`,
+          [input.trim(), null, prefixedCard, match.name, match.set_name, match.set_id, match.image_url, pricingData?.marketPrice || null, pricingData?.currency || 'GBP', req.ip, vendorId]
+        );
+
+        return res.json({
+          success: true,
+          lookup: {
+            id: insertResult.rows[0].id,
+            name: match.name,
+            set_id: match.set_id,
+            set_name: match.set_name,
+            card_number: prefixedCard,
+            image_url: match.image_url,
+            rarity: match.rarity,
+            pricing: pricingData,
+          }
+        });
+      }
+
+      if (pfMatches.rows.length > 1) {
+        return res.json({
+          success: true,
+          results: pfMatches.rows.map(c => ({
+            name: c.name, set_id: c.set_id, set_name: c.set_name,
+            local_id: c.local_id, image_url: c.image_url, rarity: c.rarity,
+          })),
+          message: `Found ${pfMatches.rows.length} cards with number ${prefixedCard}. Please select one.`
+        });
+      }
+
       return res.json({
         success: true,
         results: [],
@@ -908,6 +967,72 @@ router.post('/buy-lookup', auth, requireVendorOrAdmin, async (req, res) => {
 
     const setId = await resolveSetCode(parsed.setCode);
     if (!setId) {
+      // Fallback: maybe "set code" is actually a card number prefix (e.g. "SV 107" → SV107)
+      const prefixedCard = parsed.setCode + parsed.cardNumber;
+      const totalMatch = input.trim().match(/\/\s*[A-Za-z]*\s*(\d+)$/);
+      const prefixedTotal = totalMatch ? parsed.setCode + totalMatch[1] : null;
+
+      let pfQuery, pfParams;
+      if (prefixedTotal) {
+        pfQuery = `SELECT * FROM card_index WHERE UPPER(local_id) = UPPER($1)
+                   AND set_id IN (SELECT set_id FROM card_index WHERE UPPER(local_id) = UPPER($2))
+                   ORDER BY set_id`;
+        pfParams = [prefixedCard, prefixedTotal];
+      } else {
+        pfQuery = 'SELECT * FROM card_index WHERE UPPER(local_id) = UPPER($1) ORDER BY set_id';
+        pfParams = [prefixedCard];
+      }
+      const pfMatches = await pool.query(pfQuery, pfParams);
+
+      if (pfMatches.rows.length === 1) {
+        const match = pfMatches.rows[0];
+        let pricingData = null;
+        try {
+          pricingData = await getCardPricing(match.set_id, prefixedCard, match.name);
+          if (pricingData) {
+            savePriceHistory(match.set_id, prefixedCard, match.name, pricingData).catch(err =>
+              console.error('[Vending] Price history save failed:', err)
+            );
+          }
+        } catch (pricingErr) {
+          console.error('[Vending Buy] Pricing error:', pricingErr.message);
+        }
+
+        const buyVendorId = req.isVendor ? req.user.id : null;
+        const insertResult = await pool.query(
+          `INSERT INTO vending_lookups (raw_input, set_code, card_number, card_name, set_name, set_id, image_url, market_price, currency, ip_address, type, vendor_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'buy', $11)
+           RETURNING id`,
+          [input.trim(), null, prefixedCard, match.name, match.set_name, match.set_id, match.image_url, pricingData?.marketPrice || null, pricingData?.currency || 'GBP', req.ip, buyVendorId]
+        );
+
+        return res.json({
+          success: true,
+          lookup: {
+            id: insertResult.rows[0].id,
+            card_name: match.name,
+            set_name: match.set_name,
+            set_id: match.set_id,
+            card_number: prefixedCard,
+            image_url: match.image_url,
+            rarity: match.rarity,
+            market_price: pricingData?.marketPrice || null,
+            pricing: pricingData,
+          }
+        });
+      }
+
+      if (pfMatches.rows.length > 1) {
+        return res.json({
+          success: true,
+          results: pfMatches.rows.map(c => ({
+            name: c.name, set_id: c.set_id, set_name: c.set_name,
+            local_id: c.local_id, image_url: c.image_url, rarity: c.rarity,
+          })),
+          message: `Found ${pfMatches.rows.length} cards with number ${prefixedCard}. Please select one.`
+        });
+      }
+
       return res.json({
         success: true,
         results: [],
