@@ -333,51 +333,61 @@ function parseGradeInfo(productId) {
 
 async function getSlabPricing(setId, cardNumber, cardName) {
   try {
-    // Step 1: Find the raw product_id to derive the graded product_ids
     const ppRow = await pool.query('SELECT pokepulse_set_id FROM card_index WHERE set_id = $1 AND pokepulse_set_id IS NOT NULL LIMIT 1', [setId]);
     const pokePulseSetId = ppRow.rows[0]?.pokepulse_set_id || convertSetIdToPokePulse(setId);
 
-    // Find the raw (ungraded) product in cache
-    const rawProduct = await findCachedProduct(pokePulseSetId, cardNumber);
-    if (!rawProduct) {
-      console.log(`[Slab] No raw product cached for ${pokePulseSetId} #${cardNumber}`);
-      return [];
-    }
+    // Step 1: Check DB cache for graded products
+    let gradedProducts = await findCachedGradedProducts(pokePulseSetId, cardNumber);
+    console.log(`[Slab] DB cache: ${gradedProducts.length} graded entries for ${pokePulseSetId} #${cardNumber}`);
 
-    // Step 2: Construct graded product_ids from the raw product_id
-    // Raw: card:sv3pt5|199/165|null|null|null|null
-    // Graded: card:sv3pt5|199/165|Holo|null|PSA|10
-    // Material can be null or Holo — try both variants
-    const parts = rawProduct.product_id.split('|');
-    if (parts.length < 6) return [];
+    // Step 2: If no cache, search PokePulse catalogue (includes graded)
+    if (gradedProducts.length === 0) {
+      checkRateLimit();
+      console.log(`[Slab] Catalogue search: setId=${pokePulseSetId}, cardName=${cardName}`);
+      const catalogueData = await searchCatalogueGraded(pokePulseSetId, cardName);
+      const cardsArray = extractCardsArray(catalogueData);
 
-    const setAndNumber = parts.slice(0, 2).join('|'); // card:set|number
-    const materials = ['null', 'Holo'];
-    const gradedIds = [];
-    for (const material of materials) {
-      for (const company of SLAB_COMPANIES) {
-        gradedIds.push(`${setAndNumber}|${material}|null|${company}|${SLAB_GRADE}`);
+      if (cardsArray && cardsArray.length > 0) {
+        console.log(`[Slab] Catalogue returned ${cardsArray.length} items`);
+        cacheCatalogueResults(pokePulseSetId, cardsArray).catch(err =>
+          console.error('[Slab] Cache save error:', err.message)
+        );
+
+        gradedProducts = cardsArray.filter(c =>
+          c.card_number && matchCardNumber(c.card_number, cardNumber)
+        );
+        console.log(`[Slab] After card number filter: ${gradedProducts.length} items for #${cardNumber}`);
       }
     }
 
-    console.log(`[Slab] Batch fetching: ${gradedIds.map(id => parseGradeInfo(id)?.company).join(', ')}`);
+    // Filter to target companies + grade 10 only
+    gradedProducts = gradedProducts.filter(p => {
+      const info = parseGradeInfo(p.product_id);
+      return info && info.grade === SLAB_GRADE && SLAB_COMPANIES.includes(info.company);
+    });
 
-    // Step 3: Single batch market data call for all companies
+    if (gradedProducts.length === 0) {
+      console.log(`[Slab] No grade-10 products for ${cardName} #${cardNumber}`);
+      return [];
+    }
+
+    console.log(`[Slab] Fetching market data for: ${gradedProducts.map(p => p.product_id).join(', ')}`);
+
+    // Step 3: Batch market data call for all graded products
+    const productIds = gradedProducts.map(p => p.product_id);
     checkRateLimit();
-    const marketData = await getMarketData(gradedIds);
-
-    // Step 4: Extract prices for each company
-    const slabs = [];
+    const marketData = await getMarketData(productIds);
     const data = marketData?.data || marketData || {};
 
-    for (const productId of gradedIds) {
-      const records = data[productId];
+    const slabs = [];
+    for (const product of gradedProducts) {
+      const records = data[product.product_id];
       if (!records || records.length === 0) continue;
 
       const record = records.find(r => parseFloat(r.value) > 0) || records[0];
       const price = parseFloat(record.value) || 0;
       const currency = record.currency === '£' ? 'GBP' : (record.currency || 'GBP');
-      const info = parseGradeInfo(productId);
+      const info = parseGradeInfo(product.product_id);
 
       if (price > 0) {
         console.log(`[Slab] ${info.company} ${info.grade}: £${price}`);
