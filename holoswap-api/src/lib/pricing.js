@@ -98,6 +98,7 @@ async function searchCatalogueGraded(pokePulseSetId, cardName) {
     body: JSON.stringify({
       ...(pokePulseSetId && { setId: pokePulseSetId }),
       cardName: cardName,
+      excludeGraded: false,
       limit: 30
     })
   });
