@@ -394,16 +394,23 @@ async function getSlabPricing(setId, cardNumber, cardName) {
 
       const pricingRecords = extractPricingRecords(marketData, productId);
       const info = parseGradeInfo(productId);
-      console.log(`[Slab] ${info?.company} ${info?.grade}: ${pricingRecords?.length || 0} pricing records`);
       if (pricingRecords && pricingRecords.length > 0) {
-        const formatted = formatPricingData(pricingRecords, productId, false);
-        console.log(`[Slab] ${info?.company} ${info?.grade}: marketPrice=${formatted.marketPrice}`);
-        if (formatted.marketPrice > 0) {
+        // Graded cards may not have NM condition — take first record with a value
+        const record = pricingRecords.find(r => parseFloat(r.value) > 0) || pricingRecords[0];
+        const price = parseFloat(record.value) || 0;
+        const currency = record.currency === '£' ? 'GBP' : (record.currency || 'GBP');
+        console.log(`[Slab] ${info?.company} ${info?.grade}: £${price} (condition: ${record.condition})`);
+        if (price > 0) {
           slabs.push({
             grade: `${info.company} ${info.grade}`,
-            market_price: formatted.marketPrice,
-            currency: formatted.currency,
-            trends: formatted.trends,
+            market_price: price,
+            currency: currency,
+            trends: record.trends ? {
+              '7day': {
+                percentage: record.trends['7d']?.percentage_change || 0,
+                previous: record.trends['7d']?.previous_value || 0,
+              }
+            } : null,
           });
         }
       }
