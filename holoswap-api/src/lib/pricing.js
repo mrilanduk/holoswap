@@ -86,7 +86,7 @@ async function searchCatalogue(pokePulseSetId, cardName) {
 }
 
 // Search PokePulse catalogue for graded/slab cards (includes all materials)
-async function searchCatalogueGraded(pokePulseSetId, cardName, cardNumber) {
+async function searchCatalogueGraded(pokePulseSetId, cardName) {
   const url = 'https://catalogueservicev2-production.up.railway.app/api/cards/search';
 
   const response = await fetch(url, {
@@ -98,9 +98,8 @@ async function searchCatalogueGraded(pokePulseSetId, cardName, cardNumber) {
     body: JSON.stringify({
       ...(pokePulseSetId && { setId: pokePulseSetId }),
       cardName: cardName,
-      ...(cardNumber && { cardNumber: cardNumber }),
       excludeGraded: false,
-      limit: 30
+      limit: 100
     })
   });
 

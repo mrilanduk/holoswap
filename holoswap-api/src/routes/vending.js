@@ -339,8 +339,8 @@ async function getSlabPricing(setId, cardNumber, cardName) {
     // Step 2: If no cache, search PokePulse catalogue (includes graded)
     if (gradedProducts.length === 0) {
       checkRateLimit();
-      console.log(`[Slab] Catalogue search: setId=${pokePulseSetId}, cardName=${cardName}, cardNumber=${cardNumber}`);
-      const catalogueData = await searchCatalogueGraded(pokePulseSetId, cardName, cardNumber);
+      console.log(`[Slab] Catalogue search: setId=${pokePulseSetId}, cardName=${cardName}`);
+      const catalogueData = await searchCatalogueGraded(pokePulseSetId, cardName);
       const cardsArray = extractCardsArray(catalogueData);
 
       if (cardsArray && cardsArray.length > 0) {
