@@ -71,7 +71,7 @@ const SET_CODE_MAP = {
   // Mega evolution sets
   'MEG': 'me01', 'PFL': 'me02', 'MEP': 'MEP',
   // Sword & Shield era
-  'SSH': 'swsh1', 'RCL': 'swsh2', 'DAA': 'swsh3', 'CPA': 'swsh3.5', 'VIV': 'swsh4',
+  'SSH': 'swsh1', 'RCL': 'swsh2', 'DAA': 'swsh3', 'CPA': 'swsh3.5', 'CPL': 'swsh3.5', 'VIV': 'swsh4',
   'SHF': 'swsh4.5', 'BST': 'swsh5', 'CRE': 'swsh6', 'EVS': 'swsh7', 'CEL': 'swsh7.5',
   'FST': 'swsh8', 'BRS': 'swsh9', 'ASR': 'swsh10', 'PGO': 'swsh10.5',
   'LOR': 'swsh11', 'SIT': 'swsh12', 'CRZ': 'swsh12.5',
