@@ -93,23 +93,27 @@ const SET_CODE_MAP = {
 function parseCardInput(input) {
   const trimmed = input.trim();
 
-  // Pattern: "MEG 089/123" or "SVI 199/258" or "SHF SV107/SV122"
-  const setNumberTotal = trimmed.match(/^([A-Za-z0-9._-]+)\s+([A-Za-z]*\d+)\s*\/\s*([A-Za-z]*\d+)$/);
+  // Pattern: "MEG 089/123" or "SVI 199/258" or "SHF SV107/SV122" or "SHF SV 107/SV 122"
+  const setNumberTotal = trimmed.match(/^([A-Za-z0-9._-]+)\s+([A-Za-z]*)\s*(\d+)\s*\/\s*[A-Za-z]*\s*(\d+)$/);
   if (setNumberTotal) {
+    const prefix = setNumberTotal[2];
+    const num = setNumberTotal[3];
     return {
       type: 'set_number',
       setCode: setNumberTotal[1].toUpperCase(),
-      cardNumber: setNumberTotal[2].replace(/^0+/, '') || '0',
+      cardNumber: (prefix + num).replace(/^0+/, '') || '0',
     };
   }
 
-  // Pattern: "MEG 089" or "SHF SV107"
-  const setNum = trimmed.match(/^([A-Za-z0-9._-]+)\s+([A-Za-z]*\d+)$/);
+  // Pattern: "MEG 089" or "SHF SV107" or "SHF SV 107"
+  const setNum = trimmed.match(/^([A-Za-z0-9._-]+)\s+([A-Za-z]*)\s*(\d+)$/);
   if (setNum) {
+    const prefix = setNum[2];
+    const num = setNum[3];
     return {
       type: 'set_number',
       setCode: setNum[1].toUpperCase(),
-      cardNumber: setNum[2].replace(/^0+/, '') || '0',
+      cardNumber: (prefix + num).replace(/^0+/, '') || '0',
     };
   }
 
