@@ -241,6 +241,14 @@ const migrate = async () => {
     console.log(`\n🔄 Backfilled pokepulse_set_id on ${backfill.rowCount} card_index rows`);
   }
 
+  // Fix set IDs that don't follow standard conversion (matches POKEPULSE_SET_OVERRIDES in pricing.js)
+  const overrideFix = await pool.query(`
+    UPDATE card_index SET pokepulse_set_id = 'm1' WHERE set_id = 'me01' AND pokepulse_set_id != 'm1'
+  `);
+  if (overrideFix.rowCount > 0) {
+    console.log(`\n🔄 Fixed pokepulse_set_id for ${overrideFix.rowCount} MEG (me01 → m1) rows`);
+  }
+
   console.log('✅ Tables created:');
   console.log('   - waitlist');
   console.log('   - users');
