@@ -127,6 +127,15 @@ function parseCardInput(input) {
     };
   }
 
+  // Pattern: "SV107" or "TG15" (prefixed card number, no set code)
+  const prefixedNum = trimmed.match(/^([A-Za-z]+)\s*(\d+)$/);
+  if (prefixedNum) {
+    return {
+      type: 'prefixed_number',
+      cardNumber: prefixedNum[1].toUpperCase() + prefixedNum[2],
+    };
+  }
+
   // Fallback: name search
   return {
     type: 'name_search',
@@ -328,6 +337,63 @@ router.post('/lookup', async (req, res) => {
           image_url: c.image_url,
           rarity: c.rarity,
         }))
+      });
+    }
+
+    // Prefixed card number mode (e.g. "SV107", "TG15") — search by local_id across all sets
+    if (parsed.type === 'prefixed_number') {
+      const matches = await pool.query(
+        'SELECT * FROM card_index WHERE UPPER(local_id) = UPPER($1) ORDER BY set_id',
+        [parsed.cardNumber]
+      );
+
+      if (matches.rows.length === 0) {
+        return res.json({ success: true, results: [], message: `No card found with number ${parsed.cardNumber}` });
+      }
+
+      if (matches.rows.length === 1) {
+        const match = matches.rows[0];
+        let pricingData = null;
+        try {
+          pricingData = await getCardPricing(match.set_id, parsed.cardNumber, match.name);
+        } catch (pricingErr) {
+          console.error('[Vending] Pricing error:', pricingErr.message);
+        }
+
+        const insertResult = await pool.query(
+          `INSERT INTO vending_lookups (raw_input, set_code, card_number, card_name, set_name, set_id, image_url, market_price, currency, ip_address, vendor_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+           RETURNING id`,
+          [input.trim(), null, parsed.cardNumber, match.name, match.set_name, match.set_id, match.image_url, pricingData?.marketPrice || null, pricingData?.currency || 'GBP', req.ip, vendorId]
+        );
+
+        return res.json({
+          success: true,
+          lookup: {
+            id: insertResult.rows[0].id,
+            name: match.name,
+            set_id: match.set_id,
+            set_name: match.set_name,
+            card_number: parsed.cardNumber,
+            image_url: match.image_url,
+            rarity: match.rarity,
+            pricing: pricingData,
+          }
+        });
+      }
+
+      // Multiple matches — return options
+      return res.json({
+        success: true,
+        results: matches.rows.map(c => ({
+          name: c.name,
+          set_id: c.set_id,
+          set_name: c.set_name,
+          local_id: c.local_id,
+          image_url: c.image_url,
+          rarity: c.rarity,
+        })),
+        message: `Found ${matches.rows.length} cards with number ${parsed.cardNumber}. Please select one.`
       });
     }
 
@@ -744,6 +810,65 @@ router.post('/buy-lookup', auth, requireVendorOrAdmin, async (req, res) => {
           image_url: c.image_url,
           rarity: c.rarity,
         }))
+      });
+    }
+
+    // Prefixed card number mode (e.g. "SV107", "TG15")
+    if (parsed.type === 'prefixed_number') {
+      const matches = await pool.query(
+        'SELECT * FROM card_index WHERE UPPER(local_id) = UPPER($1) ORDER BY set_id',
+        [parsed.cardNumber]
+      );
+
+      if (matches.rows.length === 0) {
+        return res.json({ success: true, results: [], message: `No card found with number ${parsed.cardNumber}` });
+      }
+
+      if (matches.rows.length === 1) {
+        const match = matches.rows[0];
+        let pricingData = null;
+        try {
+          pricingData = await getCardPricing(match.set_id, parsed.cardNumber, match.name);
+          if (pricingData) {
+            savePriceHistory(match.set_id, parsed.cardNumber, match.name, pricingData).catch(err =>
+              console.error('[Vending] Price history save failed:', err)
+            );
+          }
+        } catch (pricingErr) {
+          console.error('[Vending Buy] Pricing error:', pricingErr.message);
+        }
+
+        const buyVendorId = req.isVendor ? req.user.id : null;
+        const insertResult = await pool.query(
+          `INSERT INTO vending_lookups (raw_input, set_code, card_number, card_name, set_name, set_id, image_url, market_price, currency, ip_address, type, vendor_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'buy', $11)
+           RETURNING id`,
+          [input.trim(), null, parsed.cardNumber, match.name, match.set_name, match.set_id, match.image_url, pricingData?.marketPrice || null, pricingData?.currency || 'GBP', req.ip, buyVendorId]
+        );
+
+        return res.json({
+          success: true,
+          lookup: {
+            id: insertResult.rows[0].id,
+            card_name: match.name,
+            set_name: match.set_name,
+            set_id: match.set_id,
+            card_number: parsed.cardNumber,
+            image_url: match.image_url,
+            rarity: match.rarity,
+            market_price: pricingData?.marketPrice || null,
+            pricing: pricingData,
+          }
+        });
+      }
+
+      return res.json({
+        success: true,
+        results: matches.rows.map(c => ({
+          name: c.name, set_id: c.set_id, set_name: c.set_name,
+          local_id: c.local_id, image_url: c.image_url, rarity: c.rarity,
+        })),
+        message: `Found ${matches.rows.length} cards with number ${parsed.cardNumber}. Please select one.`
       });
     }
 
