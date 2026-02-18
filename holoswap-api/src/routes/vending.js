@@ -316,13 +316,16 @@ async function getCardPricing(setId, cardNumber, cardName) {
 // Get slab/graded pricing for a card (PSA, CGC, BGS)
 // Parse grading company and grade from product_id
 // Format: card:setId|cardNumber|material|...|COMPANY|grade
-function parseGradeLabel(productId) {
+const SLAB_COMPANIES = ['PSA', 'ACE', 'TAG', 'CGC'];
+const SLAB_GRADE = '10';
+
+function parseGradeInfo(productId) {
   const parts = productId.split('|');
   if (parts.length >= 6) {
-    const company = parts[parts.length - 2]; // e.g. PSA, CGC, BGS, ACE, GETGRADED
-    const grade = parts[parts.length - 1];    // e.g. 10, 9.5
+    const company = parts[parts.length - 2];
+    const grade = parts[parts.length - 1];
     if (company && grade && company !== 'null') {
-      return `${company} ${grade}`;
+      return { company, grade };
     }
   }
   return null;
@@ -351,10 +354,12 @@ async function getSlabPricing(setId, cardNumber, cardName) {
           console.error('[Slab] Cache save error:', err.message)
         );
 
-        // Filter to graded cards matching our card number (must have grade field)
-        gradedProducts = cardsArray.filter(c =>
-          c.grade && c.card_number && matchCardNumber(c.card_number, cardNumber)
-        );
+        // Filter to grade 10 from target companies matching our card number
+        gradedProducts = cardsArray.filter(c => {
+          if (!c.grade || !c.card_number || !matchCardNumber(c.card_number, cardNumber)) return false;
+          const info = parseGradeInfo(c.product_id);
+          return info && info.grade === SLAB_GRADE && SLAB_COMPANIES.includes(info.company);
+        });
       }
     }
 
@@ -363,21 +368,12 @@ async function getSlabPricing(setId, cardNumber, cardName) {
       return [];
     }
 
-    console.log(`[Slab] Found ${gradedProducts.length} graded variants`);
+    console.log(`[Slab] Found ${gradedProducts.length} graded variants (grade 10 only)`);
 
-    // Step 3: Prioritise high grades from major companies (PSA 10, CGC 10, BGS 10 etc.)
-    const prioritised = gradedProducts.sort((a, b) => {
-      const gradeA = parseFloat(a.grade) || 0;
-      const gradeB = parseFloat(b.grade) || 0;
-      return gradeB - gradeA; // highest grade first
-    });
-
-    // Get market data for top 3 graded variants
+    // Get market data for each company's grade 10
     const slabs = [];
-    const toFetch = prioritised.slice(0, 5); // fetch a few extra in case some have no data
 
-    for (const product of toFetch) {
-      if (slabs.length >= 3) break;
+    for (const product of gradedProducts) {
       const productId = product.product_id;
       const marketCacheKey = `market:${productId}`;
       let marketData = getCached(marketDataCache, marketCacheKey, MARKET_DATA_TTL);
@@ -388,7 +384,8 @@ async function getSlabPricing(setId, cardNumber, cardName) {
           marketData = await getMarketData(productId);
           setCache(marketDataCache, marketCacheKey, marketData);
         } catch (err) {
-          console.error(`[Slab] Market data error for ${product.material}:`, err.message);
+          const info = parseGradeInfo(productId);
+          console.error(`[Slab] Market data error for ${info?.company}:`, err.message);
           continue;
         }
       }
@@ -397,9 +394,9 @@ async function getSlabPricing(setId, cardNumber, cardName) {
       if (pricingRecords && pricingRecords.length > 0) {
         const formatted = formatPricingData(pricingRecords, productId, false);
         if (formatted.marketPrice > 0) {
-          const gradeLabel = parseGradeLabel(productId) || product.material || 'Graded';
+          const info = parseGradeInfo(productId);
           slabs.push({
-            grade: gradeLabel,
+            grade: `${info.company} ${info.grade}`,
             market_price: formatted.marketPrice,
             currency: formatted.currency,
             trends: formatted.trends,
