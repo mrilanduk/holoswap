@@ -245,6 +245,7 @@ const migrate = async () => {
   const overrideFix = await pool.query(`
     UPDATE card_index SET pokepulse_set_id = 'm1' WHERE set_id = 'me01' AND pokepulse_set_id != 'm1';
     UPDATE card_index SET pokepulse_set_id = 'rsv10pt5' WHERE set_id = 'sv10.5w' AND pokepulse_set_id != 'rsv10pt5';
+    UPDATE card_index SET pokepulse_set_id = 'zsv10pt5' WHERE set_id = 'sv10.5b' AND pokepulse_set_id != 'zsv10pt5';
   `);
   if (overrideFix.rowCount > 0) {
     console.log(`\n🔄 Fixed pokepulse_set_id overrides for ${overrideFix.rowCount} rows`);

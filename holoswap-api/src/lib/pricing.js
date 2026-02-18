@@ -54,6 +54,7 @@ function checkRateLimit() {
 const POKEPULSE_SET_OVERRIDES = {
   'me01': 'm1',
   'sv10.5w': 'rsv10pt5',
+  'sv10.5b': 'zsv10pt5',
 };
 
 function convertSetIdToPokePulse(tcgdexSetId) {
