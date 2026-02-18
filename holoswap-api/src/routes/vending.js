@@ -93,8 +93,8 @@ const SET_CODE_MAP = {
 function parseCardInput(input) {
   const trimmed = input.trim();
 
-  // Pattern: "MEG 089/123" or "SVI 199/258"
-  const setNumberTotal = trimmed.match(/^([A-Za-z0-9._-]+)\s+(\d+)\s*\/\s*(\d+)$/);
+  // Pattern: "MEG 089/123" or "SVI 199/258" or "SHF SV107/SV122"
+  const setNumberTotal = trimmed.match(/^([A-Za-z0-9._-]+)\s+([A-Za-z]*\d+)\s*\/\s*([A-Za-z]*\d+)$/);
   if (setNumberTotal) {
     return {
       type: 'set_number',
@@ -103,8 +103,8 @@ function parseCardInput(input) {
     };
   }
 
-  // Pattern: "MEG 089"
-  const setNum = trimmed.match(/^([A-Za-z0-9._-]+)\s+(\d+)$/);
+  // Pattern: "MEG 089" or "SHF SV107"
+  const setNum = trimmed.match(/^([A-Za-z0-9._-]+)\s+([A-Za-z]*\d+)$/);
   if (setNum) {
     return {
       type: 'set_number',
@@ -154,20 +154,23 @@ async function resolveSetCode(setCode) {
 
 // Look up card in card_index by set and number
 async function findCardInIndex(setId, cardNumber) {
-  // Try exact local_id match
+  // Try exact local_id match (case-insensitive for prefixed numbers like SV107)
   const exact = await pool.query(
-    'SELECT * FROM card_index WHERE set_id = $1 AND local_id = $2 LIMIT 1',
+    'SELECT * FROM card_index WHERE set_id = $1 AND UPPER(local_id) = UPPER($2) LIMIT 1',
     [setId, cardNumber]
   );
   if (exact.rows.length > 0) return exact.rows[0];
 
-  // Try with leading zeros stripped/added
-  const padded = cardNumber.padStart(3, '0');
-  const alt = await pool.query(
-    'SELECT * FROM card_index WHERE set_id = $1 AND (local_id = $2 OR local_id = $3) LIMIT 1',
-    [setId, padded, String(parseInt(cardNumber, 10))]
-  );
-  if (alt.rows.length > 0) return alt.rows[0];
+  // Try with leading zeros stripped/added (only for pure numeric card numbers)
+  const numericPart = parseInt(cardNumber, 10);
+  if (!isNaN(numericPart) && String(numericPart) === cardNumber.replace(/^0+/, '')) {
+    const padded = cardNumber.padStart(3, '0');
+    const alt = await pool.query(
+      'SELECT * FROM card_index WHERE set_id = $1 AND (local_id = $2 OR local_id = $3) LIMIT 1',
+      [setId, padded, String(numericPart)]
+    );
+    if (alt.rows.length > 0) return alt.rows[0];
+  }
 
   return null;
 }
