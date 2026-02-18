@@ -93,6 +93,17 @@ const SET_CODE_MAP = {
 function parseCardInput(input) {
   const trimmed = input.trim();
 
+  // Pattern: "SV107/SV122" or "SV 107/SV 122" — same letter prefix on both sides = prefixed card number
+  const prefixedWithTotal = trimmed.match(/^([A-Za-z]+)\s*(\d+)\s*\/\s*([A-Za-z]+)\s*(\d+)$/);
+  if (prefixedWithTotal && prefixedWithTotal[1].toUpperCase() === prefixedWithTotal[3].toUpperCase()) {
+    const prefix = prefixedWithTotal[1].toUpperCase();
+    return {
+      type: 'prefixed_number',
+      cardNumber: prefix + prefixedWithTotal[2],
+      total: prefix + prefixedWithTotal[4],
+    };
+  }
+
   // Pattern: "MEG 089/123" or "SVI 199/258" or "SHF SV107/SV122" or "SHF SV 107/SV 122"
   const setNumberTotal = trimmed.match(/^([A-Za-z0-9._-]+)\s+([A-Za-z]*)\s*(\d+)\s*\/\s*[A-Za-z]*\s*(\d+)$/);
   if (setNumberTotal) {
@@ -124,17 +135,6 @@ function parseCardInput(input) {
       type: 'number_only',
       cardNumber: numOnly[1].replace(/^0+/, '') || '0',
       total: numOnly[2],
-    };
-  }
-
-  // Pattern: "SV107/SV122" or "TG15/TG30" (prefixed number with prefixed total)
-  const prefixedWithTotal = trimmed.match(/^([A-Za-z]+)\s*(\d+)\s*\/\s*[A-Za-z]*\s*(\d+)$/);
-  if (prefixedWithTotal) {
-    const prefix = prefixedWithTotal[1].toUpperCase();
-    return {
-      type: 'prefixed_number',
-      cardNumber: prefix + prefixedWithTotal[2],
-      total: prefix + prefixedWithTotal[3],
     };
   }
 
