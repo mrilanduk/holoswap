@@ -479,101 +479,69 @@ async function findNextSet() {
   return result.rows[0] || null;
 }
 
-// Import one set
+// Import one set using bulk fetch (1-2 API calls instead of one per card name)
 async function importSet(tcgdexSetId, ppSetIdOverride) {
-  // Use the pokepulse_set_id from card_index if available, fall back to conversion
   let ppSetId = ppSetIdOverride;
   if (!ppSetId) {
     const ppRow = await pool.query('SELECT pokepulse_set_id FROM card_index WHERE set_id = $1 AND pokepulse_set_id IS NOT NULL LIMIT 1', [tcgdexSetId]);
     ppSetId = ppRow.rows[0]?.pokepulse_set_id || convertSetIdToPokePulse(tcgdexSetId);
   }
 
-  // Get cards from card_index
-  const cardsResult = await pool.query(
-    'SELECT DISTINCT name, local_id FROM card_index WHERE set_id = $1 ORDER BY local_id',
-    [tcgdexSetId]
-  );
-
-  const setNameResult = await pool.query(
-    'SELECT set_name FROM card_index WHERE set_id = $1 LIMIT 1',
-    [tcgdexSetId]
-  );
+  const setNameResult = await pool.query('SELECT set_name FROM card_index WHERE set_id = $1 LIMIT 1', [tcgdexSetId]);
   const setName = setNameResult.rows[0]?.set_name || tcgdexSetId;
 
-  // Check current cache
   const cachedCount = await pool.query(
-    'SELECT COUNT(*) FROM pokepulse_catalogue WHERE set_id = $1 AND material IS NULL',
-    [ppSetId]
+    'SELECT COUNT(*) FROM pokepulse_catalogue WHERE set_id = $1 AND material IS NULL', [ppSetId]
   );
   const already = parseInt(cachedCount.rows[0].count);
 
   console.log(`\n📦 ${setName} (${tcgdexSetId} → ${ppSetId})`);
-  console.log(`   ${cardsResult.rows.length} unique cards, ${already} already cached\n`);
+  console.log(`   ${already} already cached\n`);
 
   let cached = 0;
   let apiCalls = 0;
-  let errors = 0;
-  let emptyResponses = 0;
-  const searchedNames = new Set();
+  let page = 1;
+  let hasMore = true;
 
-  const totalNames = new Set(cardsResult.rows.map(c => c.name)).size;
-
-  for (const card of cardsResult.rows) {
-    if (searchedNames.has(card.name)) continue;
-    searchedNames.add(card.name);
-
-    const progress = `[${searchedNames.size}/${totalNames}]`;
-
+  while (hasMore) {
     try {
-      const catalogueData = await searchCatalogue(ppSetId, card.name);
+      const data = await searchCatalogueBulk(ppSetId, page);
       apiCalls++;
-      const cards = extractCardsArray(catalogueData);
 
-      // Debug: show raw response shape for the first card
-      if (searchedNames.size === 1) {
-        console.log(`   🔍 Debug — API response keys: ${JSON.stringify(Object.keys(catalogueData))}`);
-        console.log(`   🔍 Debug — ${cards.length} cards returned`);
-        if (cards.length > 0) {
-          console.log(`   🔍 Debug — First card keys: ${JSON.stringify(Object.keys(cards[0]))}`);
-          console.log(`   🔍 Debug — First card product_id: ${cards[0].product_id || 'MISSING'}`);
-        } else {
-          console.log(`   🔍 Debug — Raw response (first 200 chars): ${JSON.stringify(catalogueData).substring(0, 200)}`);
+      const cards = extractCardsArray(data);
+      if (!cards || cards.length === 0) {
+        if (page === 1) {
+          console.log(`   ⚠️  0 results — "${ppSetId}" may not exist in PokePulse`);
         }
-        console.log('');
+        break;
       }
 
-      if (cards.length === 0) emptyResponses++;
-
-      let batchCached = 0;
-      for (const c of cards) {
-        const ok = await cacheCard(c, ppSetId);
-        if (ok) { cached++; batchCached++; }
+      for (const card of cards) {
+        const ok = await cacheCard(card, ppSetId);
+        if (ok) cached++;
       }
 
-      process.stdout.write(`   ${progress} ${card.name} — ${batchCached} cached (${cards.length} results)\r`);
+      const pagination = data.pagination;
+      hasMore = pagination?.hasNextPage === true;
+      console.log(`   Page ${page}: ${cards.length} cards (total: ${pagination?.totalResults || '?'})`);
+      page++;
 
-      // Rate limit: 1 request per second
-      await delay(1000);
-
+      if (hasMore) await delay(1000);
     } catch (err) {
-      process.stdout.write(`   ${progress} ${card.name} — ERROR\r`);
-      errors++;
       if (err.message.includes('429')) {
         console.log(`   ⚠️  Rate limited, waiting 60s...`);
         await delay(60000);
       } else {
-        console.log(`   ❌ ${card.name}: ${err.message}`);
+        console.log(`   ❌ ${err.message}`);
+        break;
       }
     }
   }
 
-  console.log(`\n   ✅ Done — ${cached} products cached, ${apiCalls} API calls, ${errors} errors`);
-  if (emptyResponses > 0) {
-    console.log(`   ⚠️  ${emptyResponses}/${apiCalls} calls returned no results — PokePulse may not cover set "${ppSetId}"`);
-  }
+  console.log(`\n   ✅ Done — ${cached} products cached, ${apiCalls} API calls`);
 
-  // If zero products cached after trying, mark set as unsupported so auto-pick skips it
-  if (cached === 0 && apiCalls >= 5) {
+  // Mark as unsupported if nothing found
+  if (cached === 0 && apiCalls >= 1) {
     try {
       await pool.query(
         `INSERT INTO pokepulse_catalogue (product_id, set_id, card_name, last_fetched)
@@ -585,7 +553,7 @@ async function importSet(tcgdexSetId, ppSetIdOverride) {
     } catch { /* ignore */ }
   }
 
-  return { cached, apiCalls, errors };
+  return { cached, apiCalls, errors: 0 };
 }
 
 async function run() {
