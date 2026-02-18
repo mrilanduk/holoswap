@@ -127,6 +127,17 @@ function parseCardInput(input) {
     };
   }
 
+  // Pattern: "SV107/SV122" or "TG15/TG30" (prefixed number with prefixed total)
+  const prefixedWithTotal = trimmed.match(/^([A-Za-z]+)\s*(\d+)\s*\/\s*[A-Za-z]*\s*(\d+)$/);
+  if (prefixedWithTotal) {
+    const prefix = prefixedWithTotal[1].toUpperCase();
+    return {
+      type: 'prefixed_number',
+      cardNumber: prefix + prefixedWithTotal[2],
+      total: prefix + prefixedWithTotal[3],
+    };
+  }
+
   // Pattern: "SV107" or "TG15" (prefixed card number, no set code)
   const prefixedNum = trimmed.match(/^([A-Za-z]+)\s*(\d+)$/);
   if (prefixedNum) {
@@ -340,12 +351,20 @@ router.post('/lookup', async (req, res) => {
       });
     }
 
-    // Prefixed card number mode (e.g. "SV107", "TG15") — search by local_id across all sets
+    // Prefixed card number mode (e.g. "SV107", "TG15", "SV107/SV122") — search by local_id across all sets
     if (parsed.type === 'prefixed_number') {
-      const matches = await pool.query(
-        'SELECT * FROM card_index WHERE UPPER(local_id) = UPPER($1) ORDER BY set_id',
-        [parsed.cardNumber]
-      );
+      let query, params;
+      if (parsed.total) {
+        // Have a total (e.g. SV107/SV122) — narrow to sets that also contain the total card
+        query = `SELECT * FROM card_index WHERE UPPER(local_id) = UPPER($1)
+                 AND set_id IN (SELECT set_id FROM card_index WHERE UPPER(local_id) = UPPER($2))
+                 ORDER BY set_id`;
+        params = [parsed.cardNumber, parsed.total];
+      } else {
+        query = 'SELECT * FROM card_index WHERE UPPER(local_id) = UPPER($1) ORDER BY set_id';
+        params = [parsed.cardNumber];
+      }
+      const matches = await pool.query(query, params);
 
       if (matches.rows.length === 0) {
         return res.json({ success: true, results: [], message: `No card found with number ${parsed.cardNumber}` });
@@ -813,12 +832,19 @@ router.post('/buy-lookup', auth, requireVendorOrAdmin, async (req, res) => {
       });
     }
 
-    // Prefixed card number mode (e.g. "SV107", "TG15")
+    // Prefixed card number mode (e.g. "SV107", "TG15", "SV107/SV122")
     if (parsed.type === 'prefixed_number') {
-      const matches = await pool.query(
-        'SELECT * FROM card_index WHERE UPPER(local_id) = UPPER($1) ORDER BY set_id',
-        [parsed.cardNumber]
-      );
+      let query, params;
+      if (parsed.total) {
+        query = `SELECT * FROM card_index WHERE UPPER(local_id) = UPPER($1)
+                 AND set_id IN (SELECT set_id FROM card_index WHERE UPPER(local_id) = UPPER($2))
+                 ORDER BY set_id`;
+        params = [parsed.cardNumber, parsed.total];
+      } else {
+        query = 'SELECT * FROM card_index WHERE UPPER(local_id) = UPPER($1) ORDER BY set_id';
+        params = [parsed.cardNumber];
+      }
+      const matches = await pool.query(query, params);
 
       if (matches.rows.length === 0) {
         return res.json({ success: true, results: [], message: `No card found with number ${parsed.cardNumber}` });
