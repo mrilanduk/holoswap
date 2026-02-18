@@ -108,6 +108,14 @@ async function getMarketData(productId) {
 }
 
 // Find matching card from catalogue results
+// Match card number, stripping leading zeros and ignoring /total suffix
+// e.g. "79" matches "079/073", "79" matches "079", "79" matches "79/073"
+function matchCardNumber(catalogueNum, searchNum) {
+  const catalogueBase = catalogueNum.split('/')[0].replace(/^0+/, '') || '0';
+  const searchBase = searchNum.replace(/^0+/, '') || '0';
+  return catalogueBase === searchBase;
+}
+
 function findMatchingCard(catalogueResults, cardNumber) {
   console.log(`Finding match for card number "${cardNumber}" among ${catalogueResults.length} results`);
   const materials = catalogueResults.map(c => ({ name: c.card_name || c.name, num: c.card_number, material: c.material }));
@@ -121,7 +129,7 @@ function findMatchingCard(catalogueResults, cardNumber) {
     // If all cards are graded/material, use them anyway as fallback
     console.log(`No raw cards found, using all ${catalogueResults.length} cards as fallback`);
     const allMatches = catalogueResults.filter(card =>
-      card.card_number && card.card_number.startsWith(cardNumber)
+      card.card_number && matchCardNumber(card.card_number, cardNumber)
     );
     if (allMatches.length > 0) return allMatches[0];
     if (catalogueResults.length === 1) return catalogueResults[0];
@@ -134,7 +142,7 @@ function findMatchingCard(catalogueResults, cardNumber) {
   }
 
   const exactMatches = rawCards.filter(card =>
-    card.card_number && card.card_number.startsWith(cardNumber)
+    card.card_number && matchCardNumber(card.card_number, cardNumber)
   );
 
   if (exactMatches.length > 0) {
