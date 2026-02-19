@@ -350,13 +350,17 @@ function analyzeBuyRecommendation(pricingData) {
 // Stores product_id mappings so we can skip catalogue API calls
 // ============================================================
 
-// Look up cached product_ids from DB (returns all variants for a card)
+// Look up cached product_ids from DB (returns all ungraded variants for a card)
 async function findCachedProducts(pokePulseSetId, cardNumber) {
   try {
+    // Exclude graded cards: product_id format is card:set|num|material|promo|gradingCo|grade
+    // Ungraded cards end with '||' (empty grading fields), graded end with e.g. '|PSA|10'
     const result = await pool.query(
-      `SELECT product_id, card_name, card_number, image_url, material
+      `SELECT DISTINCT ON (COALESCE(material, '')) product_id, card_name, card_number, image_url, material
        FROM pokepulse_catalogue
-       WHERE set_id = $1 AND card_number = $2`,
+       WHERE set_id = $1 AND card_number = $2
+         AND product_id LIKE '%||'
+       ORDER BY COALESCE(material, ''), product_id`,
       [pokePulseSetId, cardNumber]
     );
     if (result.rows.length > 0) {
@@ -365,9 +369,11 @@ async function findCachedProducts(pokePulseSetId, cardNumber) {
     }
     // Try with card_number starting with the number (e.g., "89" matches "89/123")
     const fuzzy = await pool.query(
-      `SELECT product_id, card_name, card_number, image_url, material
+      `SELECT DISTINCT ON (COALESCE(material, '')) product_id, card_name, card_number, image_url, material
        FROM pokepulse_catalogue
-       WHERE set_id = $1 AND card_number LIKE $2`,
+       WHERE set_id = $1 AND card_number LIKE $2
+         AND product_id LIKE '%||'
+       ORDER BY COALESCE(material, ''), product_id`,
       [pokePulseSetId, cardNumber + '%']
     );
     if (fuzzy.rows.length > 0) {
