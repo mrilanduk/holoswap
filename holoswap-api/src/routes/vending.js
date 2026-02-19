@@ -1689,7 +1689,7 @@ function weightedRandomSelect(segments) {
 // Customer spins the prize wheel after basket submission
 router.post('/spin', async (req, res) => {
   try {
-    const { basket_id } = req.body;
+    const { basket_id, check_only } = req.body;
     if (!basket_id) return res.status(400).json({ error: 'Missing basket_id' });
 
     // Check basket exists and get vendor
@@ -1719,7 +1719,7 @@ router.post('/spin', async (req, res) => {
     );
     if (!vendorRow.rows[0]?.prize_wheel_enabled) return res.json({ eligible: false });
 
-    // Check if already spun (idempotent)
+    // Check if already spun (idempotent) — always return existing result
     const existing = await pool.query(
       'SELECT * FROM prize_wheel_spins WHERE basket_id = $1',
       [basket_id]
@@ -1750,6 +1750,14 @@ router.post('/spin', async (req, res) => {
       [vendorId]
     );
     if (segResult.rows.length === 0) return res.json({ eligible: false });
+
+    // check_only mode: just return eligibility + segments without performing the spin
+    if (check_only) {
+      return res.json({
+        eligible: true,
+        segments: segResult.rows.map(s => ({ label: s.label, color: s.color })),
+      });
+    }
 
     const segments = segResult.rows;
     const { segment, index } = weightedRandomSelect(segments);
