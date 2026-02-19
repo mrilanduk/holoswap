@@ -354,12 +354,12 @@ function analyzeBuyRecommendation(pricingData) {
 async function findCachedProducts(pokePulseSetId, cardNumber) {
   try {
     // Exclude graded cards: product_id format is card:set|num|material|promo|gradingCo|grade
-    // Ungraded cards end with '||' (empty grading fields), graded end with e.g. '|PSA|10'
+    // Ungraded cards end with '|null|null', graded end with e.g. '|PSA|10'
     const result = await pool.query(
       `SELECT DISTINCT ON (COALESCE(material, '')) product_id, card_name, card_number, image_url, material
        FROM pokepulse_catalogue
        WHERE set_id = $1 AND card_number = $2
-         AND product_id LIKE '%||'
+         AND product_id LIKE '%|null|null'
        ORDER BY COALESCE(material, ''), product_id`,
       [pokePulseSetId, cardNumber]
     );
@@ -372,7 +372,7 @@ async function findCachedProducts(pokePulseSetId, cardNumber) {
       `SELECT DISTINCT ON (COALESCE(material, '')) product_id, card_name, card_number, image_url, material
        FROM pokepulse_catalogue
        WHERE set_id = $1 AND card_number LIKE $2
-         AND product_id LIKE '%||'
+         AND product_id LIKE '%|null|null'
        ORDER BY COALESCE(material, ''), product_id`,
       [pokePulseSetId, cardNumber + '%']
     );
