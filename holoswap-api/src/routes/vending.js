@@ -1825,6 +1825,53 @@ router.post('/prizes', auth, requireVendorOrAdmin, async (req, res) => {
   }
 });
 
+// ADMIN: PUT /api/vending/prizes/toggle (must be before /:id routes)
+router.put('/prizes/toggle', auth, requireVendorOrAdmin, async (req, res) => {
+  try {
+    const { enabled } = req.body;
+    await pool.query('UPDATE users SET prize_wheel_enabled = $1 WHERE id = $2', [!!enabled, req.user.id]);
+    res.json({ success: true, enabled: !!enabled });
+  } catch (err) {
+    console.error('[Vending] Toggle prize wheel error:', err);
+    res.status(500).json({ error: 'Failed to toggle prize wheel' });
+  }
+});
+
+// ADMIN: GET /api/vending/prizes/history (must be before /:id routes)
+router.get('/prizes/history', auth, requireVendorOrAdmin, async (req, res) => {
+  try {
+    const vendorId = req.isVendor ? req.user.id : null;
+    let query, params;
+    if (vendorId) {
+      query = 'SELECT * FROM prize_wheel_spins WHERE vendor_id = $1 ORDER BY created_at DESC LIMIT 100';
+      params = [vendorId];
+    } else {
+      query = 'SELECT * FROM prize_wheel_spins WHERE vendor_id IS NULL ORDER BY created_at DESC LIMIT 100';
+      params = [];
+    }
+    const result = await pool.query(query, params);
+    res.json({ spins: result.rows });
+  } catch (err) {
+    console.error('[Vending] Prize history error:', err);
+    res.status(500).json({ error: 'Failed to load prize history' });
+  }
+});
+
+// ADMIN: PUT /api/vending/prizes/history/:id/redeem
+router.put('/prizes/history/:id/redeem', auth, requireVendorOrAdmin, async (req, res) => {
+  try {
+    const result = await pool.query(
+      'UPDATE prize_wheel_spins SET redeemed = true, redeemed_at = NOW() WHERE id = $1 RETURNING *',
+      [req.params.id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Spin not found' });
+    res.json({ success: true, spin: result.rows[0] });
+  } catch (err) {
+    console.error('[Vending] Redeem prize error:', err);
+    res.status(500).json({ error: 'Failed to redeem prize' });
+  }
+});
+
 // ADMIN: PUT /api/vending/prizes/:id
 router.put('/prizes/:id', auth, requireVendorOrAdmin, async (req, res) => {
   try {
@@ -1861,53 +1908,6 @@ router.delete('/prizes/:id', auth, requireVendorOrAdmin, async (req, res) => {
   } catch (err) {
     console.error('[Vending] Delete prize error:', err);
     res.status(500).json({ error: 'Failed to delete prize' });
-  }
-});
-
-// ADMIN: PUT /api/vending/prizes/toggle
-router.put('/prizes/toggle', auth, requireVendorOrAdmin, async (req, res) => {
-  try {
-    const { enabled } = req.body;
-    await pool.query('UPDATE users SET prize_wheel_enabled = $1 WHERE id = $2', [!!enabled, req.user.id]);
-    res.json({ success: true, enabled: !!enabled });
-  } catch (err) {
-    console.error('[Vending] Toggle prize wheel error:', err);
-    res.status(500).json({ error: 'Failed to toggle prize wheel' });
-  }
-});
-
-// ADMIN: GET /api/vending/prizes/history
-router.get('/prizes/history', auth, requireVendorOrAdmin, async (req, res) => {
-  try {
-    const vendorId = req.isVendor ? req.user.id : null;
-    let query, params;
-    if (vendorId) {
-      query = 'SELECT * FROM prize_wheel_spins WHERE vendor_id = $1 ORDER BY created_at DESC LIMIT 100';
-      params = [vendorId];
-    } else {
-      query = 'SELECT * FROM prize_wheel_spins WHERE vendor_id IS NULL ORDER BY created_at DESC LIMIT 100';
-      params = [];
-    }
-    const result = await pool.query(query, params);
-    res.json({ spins: result.rows });
-  } catch (err) {
-    console.error('[Vending] Prize history error:', err);
-    res.status(500).json({ error: 'Failed to load prize history' });
-  }
-});
-
-// ADMIN: PUT /api/vending/prizes/history/:id/redeem
-router.put('/prizes/history/:id/redeem', auth, requireVendorOrAdmin, async (req, res) => {
-  try {
-    const result = await pool.query(
-      'UPDATE prize_wheel_spins SET redeemed = true, redeemed_at = NOW() WHERE id = $1 RETURNING *',
-      [req.params.id]
-    );
-    if (result.rows.length === 0) return res.status(404).json({ error: 'Spin not found' });
-    res.json({ success: true, spin: result.rows[0] });
-  } catch (err) {
-    console.error('[Vending] Redeem prize error:', err);
-    res.status(500).json({ error: 'Failed to redeem prize' });
   }
 });
 
