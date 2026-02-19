@@ -224,6 +224,41 @@ const migrate = async () => {
     ALTER TABLE card_index ADD COLUMN IF NOT EXISTS pokepulse_set_id VARCHAR(50);
     CREATE INDEX IF NOT EXISTS idx_card_index_pp_set_id ON card_index(pokepulse_set_id);
 
+    -- Prize wheel config (vendor's wheel segments)
+    CREATE TABLE IF NOT EXISTS prize_wheel_config (
+      id         SERIAL PRIMARY KEY,
+      vendor_id  INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      label      VARCHAR(100) NOT NULL,
+      prize_type VARCHAR(20) NOT NULL DEFAULT 'none',
+      prize_value VARCHAR(100),
+      weight     INTEGER NOT NULL DEFAULT 1,
+      color      VARCHAR(7) DEFAULT '#3b82f6',
+      position   INTEGER NOT NULL DEFAULT 0,
+      is_active  BOOLEAN DEFAULT TRUE,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_prize_wheel_config_vendor ON prize_wheel_config(vendor_id);
+
+    -- Prize wheel spin results (one spin per basket)
+    CREATE TABLE IF NOT EXISTS prize_wheel_spins (
+      id            SERIAL PRIMARY KEY,
+      basket_id     VARCHAR(50) NOT NULL UNIQUE,
+      vendor_id     INTEGER REFERENCES users(id),
+      config_id     INTEGER REFERENCES prize_wheel_config(id),
+      prize_label   VARCHAR(100) NOT NULL,
+      prize_type    VARCHAR(20) NOT NULL,
+      prize_value   VARCHAR(100),
+      customer_name VARCHAR(100),
+      redeemed      BOOLEAN DEFAULT FALSE,
+      redeemed_at   TIMESTAMPTZ,
+      created_at    TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_prize_wheel_spins_vendor ON prize_wheel_spins(vendor_id);
+    CREATE INDEX IF NOT EXISTS idx_prize_wheel_spins_basket ON prize_wheel_spins(basket_id);
+
+    -- Vendor prize wheel toggle
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS prize_wheel_enabled BOOLEAN DEFAULT FALSE;
+
   `);
 
   // Backfill pokepulse_set_id from existing set_id (pure SQL, no API calls)
@@ -269,8 +304,10 @@ const migrate = async () => {
   console.log('   - binder_cards');
   console.log('   - vending_lookups');
   console.log('   - vending_daily_summaries');
+  console.log('   - prize_wheel_config');
+  console.log('   - prize_wheel_spins');
 
-  const tables = ['waitlist', 'users', 'cards', 'want_list', 'submissions', 'binders', 'binder_cards', 'vending_lookups', 'vending_daily_summaries'];
+  const tables = ['waitlist', 'users', 'cards', 'want_list', 'submissions', 'binders', 'binder_cards', 'vending_lookups', 'vending_daily_summaries', 'prize_wheel_config', 'prize_wheel_spins'];
   console.log('\n📊 Current data:');
   for (const t of tables) {
     const r = await pool.query(`SELECT COUNT(*) FROM ${t}`);

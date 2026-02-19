@@ -1670,4 +1670,245 @@ router.get('/catalogue/stats', auth, requireVendorOrAdmin, async (req, res) => {
   }
 });
 
+// ============================================================
+// PRIZE WHEEL
+// ============================================================
+
+// Weighted random selection for prize wheel
+function weightedRandomSelect(segments) {
+  const totalWeight = segments.reduce((sum, s) => sum + s.weight, 0);
+  let random = Math.random() * totalWeight;
+  for (let i = 0; i < segments.length; i++) {
+    random -= segments[i].weight;
+    if (random <= 0) return { segment: segments[i], index: i };
+  }
+  return { segment: segments[segments.length - 1], index: segments.length - 1 };
+}
+
+// PUBLIC: POST /api/vending/spin
+// Customer spins the prize wheel after basket submission
+router.post('/spin', async (req, res) => {
+  try {
+    const { basket_id } = req.body;
+    if (!basket_id) return res.status(400).json({ error: 'Missing basket_id' });
+
+    // Check basket exists and get vendor
+    const basketRow = await pool.query(
+      'SELECT vendor_id, customer_name FROM vending_lookups WHERE basket_id = $1 LIMIT 1',
+      [basket_id]
+    );
+    if (basketRow.rows.length === 0) return res.json({ eligible: false });
+
+    const vendorId = basketRow.rows[0].vendor_id;
+    const customerName = basketRow.rows[0].customer_name;
+    if (!vendorId) return res.json({ eligible: false });
+
+    // Check vendor has wheel enabled
+    const vendorRow = await pool.query(
+      'SELECT prize_wheel_enabled FROM users WHERE id = $1',
+      [vendorId]
+    );
+    if (!vendorRow.rows[0]?.prize_wheel_enabled) return res.json({ eligible: false });
+
+    // Check if already spun (idempotent)
+    const existing = await pool.query(
+      'SELECT * FROM prize_wheel_spins WHERE basket_id = $1',
+      [basket_id]
+    );
+    if (existing.rows.length > 0) {
+      const spin = existing.rows[0];
+      const segments = await pool.query(
+        'SELECT label, color FROM prize_wheel_config WHERE vendor_id = $1 AND is_active = true ORDER BY position',
+        [vendorId]
+      );
+      return res.json({
+        success: true,
+        eligible: true,
+        already_spun: true,
+        spin: {
+          prize_label: spin.prize_label,
+          prize_type: spin.prize_type,
+          prize_value: spin.prize_value,
+          segment_index: segments.rows.findIndex(s => s.label === spin.prize_label),
+        },
+        segments: segments.rows,
+      });
+    }
+
+    // Get active segments
+    const segResult = await pool.query(
+      'SELECT id, label, prize_type, prize_value, weight, color FROM prize_wheel_config WHERE vendor_id = $1 AND is_active = true ORDER BY position',
+      [vendorId]
+    );
+    if (segResult.rows.length === 0) return res.json({ eligible: false });
+
+    const segments = segResult.rows;
+    const { segment, index } = weightedRandomSelect(segments);
+
+    // Save spin result
+    await pool.query(
+      `INSERT INTO prize_wheel_spins (basket_id, vendor_id, config_id, prize_label, prize_type, prize_value, customer_name)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [basket_id, vendorId, segment.id, segment.label, segment.prize_type, segment.prize_value, customerName]
+    );
+
+    res.json({
+      success: true,
+      eligible: true,
+      spin: {
+        prize_label: segment.label,
+        prize_type: segment.prize_type,
+        prize_value: segment.prize_value,
+        segment_index: index,
+      },
+      segments: segments.map(s => ({ label: s.label, color: s.color })),
+    });
+  } catch (err) {
+    // Handle unique constraint violation (double-tap race condition)
+    if (err.code === '23505') {
+      return res.json({ eligible: true, already_spun: true });
+    }
+    console.error('[Vending] Spin error:', err);
+    res.status(500).json({ error: 'Spin failed' });
+  }
+});
+
+// ADMIN: GET /api/vending/prizes
+router.get('/prizes', auth, requireVendorOrAdmin, async (req, res) => {
+  try {
+    const vendorId = req.isVendor ? req.user.id : null;
+    const enabledRow = await pool.query('SELECT prize_wheel_enabled FROM users WHERE id = $1', [req.user.id]);
+
+    let query = 'SELECT * FROM prize_wheel_config WHERE vendor_id = $1 ORDER BY position';
+    let params = [vendorId];
+    if (req.isAdmin && !req.isVendor) {
+      query = 'SELECT * FROM prize_wheel_config WHERE vendor_id IS NULL ORDER BY position';
+      params = [];
+    }
+
+    const result = await pool.query(query, params);
+    res.json({
+      enabled: enabledRow.rows[0]?.prize_wheel_enabled || false,
+      prizes: result.rows,
+    });
+  } catch (err) {
+    console.error('[Vending] Get prizes error:', err);
+    res.status(500).json({ error: 'Failed to load prizes' });
+  }
+});
+
+// ADMIN: POST /api/vending/prizes
+router.post('/prizes', auth, requireVendorOrAdmin, async (req, res) => {
+  try {
+    const { label, prize_type, prize_value, weight, color } = req.body;
+    if (!label) return res.status(400).json({ error: 'Label required' });
+
+    const vendorId = req.isVendor ? req.user.id : null;
+
+    // Get next position
+    const posResult = await pool.query(
+      'SELECT COALESCE(MAX(position), -1) + 1 as next_pos FROM prize_wheel_config WHERE vendor_id = $1',
+      [vendorId]
+    );
+
+    const result = await pool.query(
+      `INSERT INTO prize_wheel_config (vendor_id, label, prize_type, prize_value, weight, color, position)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING *`,
+      [vendorId, label, prize_type || 'none', prize_value || null, weight || 1, color || '#3b82f6', posResult.rows[0].next_pos]
+    );
+
+    res.json({ success: true, prize: result.rows[0] });
+  } catch (err) {
+    console.error('[Vending] Create prize error:', err);
+    res.status(500).json({ error: 'Failed to create prize' });
+  }
+});
+
+// ADMIN: PUT /api/vending/prizes/:id
+router.put('/prizes/:id', auth, requireVendorOrAdmin, async (req, res) => {
+  try {
+    const { label, prize_type, prize_value, weight, color, is_active } = req.body;
+    const vendorId = req.isVendor ? req.user.id : null;
+
+    const result = await pool.query(
+      `UPDATE prize_wheel_config
+       SET label = COALESCE($1, label),
+           prize_type = COALESCE($2, prize_type),
+           prize_value = $3,
+           weight = COALESCE($4, weight),
+           color = COALESCE($5, color),
+           is_active = COALESCE($6, is_active)
+       WHERE id = $7 AND vendor_id = $8
+       RETURNING *`,
+      [label, prize_type, prize_value !== undefined ? prize_value : null, weight, color, is_active, req.params.id, vendorId]
+    );
+
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Prize not found' });
+    res.json({ success: true, prize: result.rows[0] });
+  } catch (err) {
+    console.error('[Vending] Update prize error:', err);
+    res.status(500).json({ error: 'Failed to update prize' });
+  }
+});
+
+// ADMIN: DELETE /api/vending/prizes/:id
+router.delete('/prizes/:id', auth, requireVendorOrAdmin, async (req, res) => {
+  try {
+    const vendorId = req.isVendor ? req.user.id : null;
+    await pool.query('DELETE FROM prize_wheel_config WHERE id = $1 AND vendor_id = $2', [req.params.id, vendorId]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[Vending] Delete prize error:', err);
+    res.status(500).json({ error: 'Failed to delete prize' });
+  }
+});
+
+// ADMIN: PUT /api/vending/prizes/toggle
+router.put('/prizes/toggle', auth, requireVendorOrAdmin, async (req, res) => {
+  try {
+    const { enabled } = req.body;
+    await pool.query('UPDATE users SET prize_wheel_enabled = $1 WHERE id = $2', [!!enabled, req.user.id]);
+    res.json({ success: true, enabled: !!enabled });
+  } catch (err) {
+    console.error('[Vending] Toggle prize wheel error:', err);
+    res.status(500).json({ error: 'Failed to toggle prize wheel' });
+  }
+});
+
+// ADMIN: GET /api/vending/prizes/history
+router.get('/prizes/history', auth, requireVendorOrAdmin, async (req, res) => {
+  try {
+    const vendorId = req.isVendor ? req.user.id : null;
+    let query, params;
+    if (vendorId) {
+      query = 'SELECT * FROM prize_wheel_spins WHERE vendor_id = $1 ORDER BY created_at DESC LIMIT 100';
+      params = [vendorId];
+    } else {
+      query = 'SELECT * FROM prize_wheel_spins WHERE vendor_id IS NULL ORDER BY created_at DESC LIMIT 100';
+      params = [];
+    }
+    const result = await pool.query(query, params);
+    res.json({ spins: result.rows });
+  } catch (err) {
+    console.error('[Vending] Prize history error:', err);
+    res.status(500).json({ error: 'Failed to load prize history' });
+  }
+});
+
+// ADMIN: PUT /api/vending/prizes/history/:id/redeem
+router.put('/prizes/history/:id/redeem', auth, requireVendorOrAdmin, async (req, res) => {
+  try {
+    const result = await pool.query(
+      'UPDATE prize_wheel_spins SET redeemed = true, redeemed_at = NOW() WHERE id = $1 RETURNING *',
+      [req.params.id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Spin not found' });
+    res.json({ success: true, spin: result.rows[0] });
+  } catch (err) {
+    console.error('[Vending] Redeem prize error:', err);
+    res.status(500).json({ error: 'Failed to redeem prize' });
+  }
+});
+
 module.exports = router;
