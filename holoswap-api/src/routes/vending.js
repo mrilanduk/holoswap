@@ -1703,12 +1703,14 @@ router.post('/spin', async (req, res) => {
     const customerName = basketRow.rows[0].customer_name;
     if (!vendorId) return res.json({ eligible: false });
 
-    // Check that the sale has been completed by the vendor
+    // Check that the sale has been completed by the vendor (all items must be completed or skipped)
     const pendingItems = await pool.query(
-      "SELECT COUNT(*) FROM vending_lookups WHERE basket_id = $1 AND status != 'completed'",
+      "SELECT COUNT(*) FROM vending_lookups WHERE basket_id = $1 AND status NOT IN ('completed', 'skipped')",
       [basket_id]
     );
-    if (parseInt(pendingItems.rows[0].count) > 0) return res.json({ eligible: false, pending: true });
+    const pendingCount = parseInt(pendingItems.rows[0].count);
+    console.log(`[Spin] basket_id=${basket_id}, pendingCount=${pendingCount}`);
+    if (pendingCount > 0) return res.json({ eligible: false, pending: true });
 
     // Check vendor has wheel enabled
     const vendorRow = await pool.query(
