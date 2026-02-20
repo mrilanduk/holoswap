@@ -1,4 +1,5 @@
 const { Router } = require('express');
+const jwt = require('jsonwebtoken');
 const pool = require('../db');
 const auth = require('../middleware/auth');
 const {
@@ -57,6 +58,68 @@ function checkIpRateLimit(ip) {
   entry.count++;
   return true;
 }
+
+// Access token verification for price checker password gate
+// If PRICE_CHECKER_PASSWORD env var is set, public endpoints require a valid access token
+const accessAttempts = new Map();
+const ACCESS_ATTEMPT_LIMIT = 5;
+const ACCESS_ATTEMPT_WINDOW = 15 * 60 * 1000; // 15 minutes
+
+function requireAccessToken(req, res, next) {
+  // If no password configured, pass through (no gate)
+  if (!process.env.PRICE_CHECKER_PASSWORD) return next();
+
+  const token = req.headers['x-access-token'];
+  if (!token) return res.status(401).json({ error: 'Access token required' });
+
+  try {
+    jwt.verify(token, process.env.JWT_SECRET);
+    next();
+  } catch (err) {
+    return res.status(401).json({ error: 'Invalid or expired access token' });
+  }
+}
+
+// PUBLIC: POST /api/vending/verify-access
+// Verify the price checker password and return a session token
+router.post('/verify-access', (req, res) => {
+  const configuredPassword = process.env.PRICE_CHECKER_PASSWORD;
+
+  // If no password configured, always grant access
+  if (!configuredPassword) {
+    return res.json({ success: true, no_password: true });
+  }
+
+  const { password } = req.body;
+  const ip = req.ip;
+
+  // Rate limit password attempts
+  const now = Date.now();
+  const entry = accessAttempts.get(ip);
+  if (entry && now - entry.start < ACCESS_ATTEMPT_WINDOW) {
+    if (entry.count >= ACCESS_ATTEMPT_LIMIT) {
+      return res.status(429).json({ error: 'Too many attempts. Try again later.' });
+    }
+    entry.count++;
+  } else {
+    accessAttempts.set(ip, { count: 1, start: now });
+  }
+
+  if (!password || password !== configuredPassword) {
+    return res.status(401).json({ error: 'Incorrect password' });
+  }
+
+  // Password correct — reset attempts and return token
+  accessAttempts.delete(ip);
+  const token = jwt.sign({ access: 'price-checker' }, process.env.JWT_SECRET, { expiresIn: '24h' });
+  res.json({ success: true, token });
+});
+
+// PUBLIC: GET /api/vending/access-check
+// Check whether a password is required (so frontend knows whether to show the gate)
+router.get('/access-check', (req, res) => {
+  res.json({ password_required: !!process.env.PRICE_CHECKER_PASSWORD });
+});
 
 // Printed set code → TCGDex set_id mapping
 const SET_CODE_MAP = {
@@ -342,7 +405,7 @@ async function getCardPricing(setId, cardNumber, cardName) {
 // PUBLIC: POST /api/vending/lookup
 // Customer submits card input, gets price back
 // ============================================================
-router.post('/lookup', async (req, res) => {
+router.post('/lookup', requireAccessToken, async (req, res) => {
   try {
     const { input, vendor_code } = req.body;
     if (!input || !input.trim()) {
@@ -673,7 +736,7 @@ router.post('/lookup', async (req, res) => {
 
 // PUBLIC: POST /api/vending/lookup-card
 // Called when customer picks a card from name search results
-router.post('/lookup-card', async (req, res) => {
+router.post('/lookup-card', requireAccessToken, async (req, res) => {
   try {
     const { name, set_id, local_id, vendor_code } = req.body;
     if (!name || !set_id || !local_id) {
@@ -751,7 +814,7 @@ router.post('/lookup-card', async (req, res) => {
 
 // PUBLIC: POST /api/vending/submit-basket
 // Groups lookup IDs under a shared basket_id
-router.post('/submit-basket', async (req, res) => {
+router.post('/submit-basket', requireAccessToken, async (req, res) => {
   try {
     const { lookup_ids, customer_name } = req.body;
     if (!lookup_ids || !Array.isArray(lookup_ids) || lookup_ids.length === 0) {
@@ -777,7 +840,7 @@ router.post('/submit-basket', async (req, res) => {
 
 // PUBLIC: POST /api/vending/basket/:basketId/contact
 // Customer optionally provides email/phone after submitting basket
-router.post('/basket/:basketId/contact', async (req, res) => {
+router.post('/basket/:basketId/contact', requireAccessToken, async (req, res) => {
   try {
     const { email, phone } = req.body;
     const basketId = req.params.basketId;
@@ -1687,7 +1750,7 @@ function weightedRandomSelect(segments) {
 
 // PUBLIC: POST /api/vending/spin
 // Customer spins the prize wheel after basket submission
-router.post('/spin', async (req, res) => {
+router.post('/spin', requireAccessToken, async (req, res) => {
   try {
     const { basket_id, check_only } = req.body;
     if (!basket_id) return res.status(400).json({ error: 'Missing basket_id' });
