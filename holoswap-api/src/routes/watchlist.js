@@ -1,6 +1,19 @@
 const router = require('express').Router();
 const pool = require('../db');
 const auth = require('../middleware/auth');
+const {
+  convertSetIdToPokePulse,
+  findCachedProducts,
+  searchCatalogue,
+  findMatchingCards,
+  extractCardsArray,
+  cacheCatalogueResults,
+  getMarketData,
+  extractPricingRecords,
+  formatPricingData,
+  savePriceHistory,
+  checkRateLimit,
+} = require('../lib/pricing');
 
 // ─── Watchlist CRUD ───────────────────────────────────────────
 
@@ -33,7 +46,7 @@ router.get('/', auth, async (req, res) => {
   }
 });
 
-// POST /api/watchlist — add card to watchlist
+// POST /api/watchlist — add card to watchlist (resolves price immediately)
 router.post('/', auth, async (req, res) => {
   try {
     const { set_id, card_number, card_name, set_name, image_url, product_id } = req.body;
@@ -41,16 +54,79 @@ router.post('/', auth, async (req, res) => {
       return res.status(400).json({ error: 'set_id and card_number are required' });
     }
 
+    let resolvedProductId = product_id || null;
+    let resolvedPrice = null;
+
+    // Try to resolve product_id and fetch initial price
+    try {
+      const ppSetId = convertSetIdToPokePulse(set_id);
+
+      // Step 1: Check catalogue cache
+      if (!resolvedProductId) {
+        const cached = await findCachedProducts(ppSetId, card_number);
+        if (cached.length > 0) {
+          resolvedProductId = cached[0].product_id;
+        }
+      }
+
+      // Step 2: If not cached, search catalogue API
+      if (!resolvedProductId) {
+        checkRateLimit();
+        const catalogueData = await searchCatalogue(ppSetId, card_name || '');
+        const cardsArray = extractCardsArray(catalogueData);
+        if (cardsArray && cardsArray.length > 0) {
+          await cacheCatalogueResults(ppSetId, cardsArray);
+          const matches = findMatchingCards(cardsArray, card_number);
+          if (matches.length > 0) {
+            resolvedProductId = matches[0].product_id;
+          }
+        }
+      }
+
+      // Step 3: Fetch market price
+      if (resolvedProductId) {
+        checkRateLimit();
+        const marketData = await getMarketData(resolvedProductId);
+        const records = extractPricingRecords(marketData, resolvedProductId);
+        if (records && records.length > 0) {
+          const pricing = formatPricingData(records, resolvedProductId, false);
+          if (pricing.marketPrice > 0) {
+            resolvedPrice = pricing.marketPrice;
+            await savePriceHistory(set_id, card_number, card_name, pricing);
+          }
+        }
+      }
+    } catch (priceErr) {
+      // Non-fatal — card still gets added, price will be filled by cron later
+      console.log(`[Watchlist] Price resolve skipped for ${set_id} #${card_number}: ${priceErr.message}`);
+    }
+
     const result = await pool.query(
-      `INSERT INTO price_watchlist (user_id, set_id, card_number, card_name, set_name, image_url, product_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `INSERT INTO price_watchlist (user_id, set_id, card_number, card_name, set_name, image_url, product_id, last_price, last_checked)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        ON CONFLICT (user_id, set_id, card_number) DO NOTHING
        RETURNING *`,
-      [req.user.id, set_id, card_number, card_name || null, set_name || null, image_url || null, product_id || null]
+      [
+        req.user.id, set_id, card_number, card_name || null, set_name || null,
+        image_url || null, resolvedProductId, resolvedPrice,
+        resolvedPrice ? new Date() : null
+      ]
     );
 
     if (result.rows.length === 0) {
       return res.status(409).json({ error: 'Card already on watchlist' });
+    }
+
+    // If we resolved a product_id, update all other users watching the same card
+    if (resolvedProductId || resolvedPrice) {
+      await pool.query(
+        `UPDATE price_watchlist SET
+          product_id = COALESCE(product_id, $1),
+          last_price = COALESCE($2, last_price),
+          last_checked = COALESCE($3, last_checked)
+         WHERE set_id = $4 AND card_number = $5 AND id != $6`,
+        [resolvedProductId, resolvedPrice, resolvedPrice ? new Date() : null, set_id, card_number, result.rows[0].id]
+      );
     }
 
     res.status(201).json(result.rows[0]);
