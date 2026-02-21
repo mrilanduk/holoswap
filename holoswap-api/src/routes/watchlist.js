@@ -46,79 +46,128 @@ router.get('/', auth, async (req, res) => {
   }
 });
 
-// POST /api/watchlist — add card to watchlist (resolves price immediately)
+// POST /api/watchlist — add card or sealed product to watchlist
 router.post('/', auth, async (req, res) => {
   try {
-    const { set_id, card_number, card_name, set_name, image_url, product_id } = req.body;
-    if (!set_id || !card_number) {
-      return res.status(400).json({ error: 'set_id and card_number are required' });
+    const { set_id, card_number, card_name, set_name, image_url, product_id, product_type, buy_price } = req.body;
+    const type = product_type || 'card';
+
+    if (type === 'card' && (!set_id || !card_number)) {
+      return res.status(400).json({ error: 'set_id and card_number are required for cards' });
+    }
+    if (type === 'sealed' && !card_name) {
+      return res.status(400).json({ error: 'Product name is required for sealed products' });
     }
 
     let resolvedProductId = product_id || null;
-    let resolvedPrice = null;
+    let resolvedPrice = buy_price ? parseFloat(buy_price) : null;
 
-    // Try to resolve product_id and fetch initial price
-    try {
-      const ppSetId = convertSetIdToPokePulse(set_id);
+    // Try to resolve product_id and fetch initial price (cards only)
+    if (type === 'card') {
+      try {
+        const ppSetId = convertSetIdToPokePulse(set_id);
 
-      // Step 1: Check catalogue cache
-      if (!resolvedProductId) {
-        const cached = await findCachedProducts(ppSetId, card_number);
-        if (cached.length > 0) {
-          resolvedProductId = cached[0].product_id;
+        // Step 1: Check catalogue cache
+        if (!resolvedProductId) {
+          const cached = await findCachedProducts(ppSetId, card_number);
+          if (cached.length > 0) {
+            resolvedProductId = cached[0].product_id;
+          }
         }
-      }
 
-      // Step 2: If not cached, search catalogue API
-      if (!resolvedProductId) {
+        // Step 2: If not cached, search catalogue API
+        if (!resolvedProductId) {
+          checkRateLimit();
+          const catalogueData = await searchCatalogue(ppSetId, card_name || '');
+          const cardsArray = extractCardsArray(catalogueData);
+          if (cardsArray && cardsArray.length > 0) {
+            await cacheCatalogueResults(ppSetId, cardsArray);
+            const matches = findMatchingCards(cardsArray, card_number);
+            if (matches.length > 0) {
+              resolvedProductId = matches[0].product_id;
+            }
+          }
+        }
+
+        // Step 3: Fetch market price
+        if (resolvedProductId) {
+          checkRateLimit();
+          const marketData = await getMarketData(resolvedProductId);
+          const records = extractPricingRecords(marketData, resolvedProductId);
+          if (records && records.length > 0) {
+            const pricing = formatPricingData(records, resolvedProductId, false);
+            if (pricing.marketPrice > 0) {
+              resolvedPrice = pricing.marketPrice;
+              await savePriceHistory(set_id, card_number, card_name, pricing);
+            }
+          }
+        }
+      } catch (priceErr) {
+        console.log(`[Watchlist] Price resolve skipped for ${set_id} #${card_number}: ${priceErr.message}`);
+      }
+    }
+
+    // For sealed products, try PokePulse catalogue search (may find sealed items)
+    if (type === 'sealed' && !resolvedProductId) {
+      try {
         checkRateLimit();
-        const catalogueData = await searchCatalogue(ppSetId, card_name || '');
+        const catalogueData = await searchCatalogue('', card_name);
         const cardsArray = extractCardsArray(catalogueData);
         if (cardsArray && cardsArray.length > 0) {
-          await cacheCatalogueResults(ppSetId, cardsArray);
-          const matches = findMatchingCards(cardsArray, card_number);
-          if (matches.length > 0) {
-            resolvedProductId = matches[0].product_id;
+          // Take first result — PokePulse might return sealed products
+          const match = cardsArray.find(c => c.product_id);
+          if (match) {
+            resolvedProductId = match.product_id;
+            // Try to get market price
+            checkRateLimit();
+            const marketData = await getMarketData(resolvedProductId);
+            const records = extractPricingRecords(marketData, resolvedProductId);
+            if (records && records.length > 0) {
+              const pricing = formatPricingData(records, resolvedProductId, false);
+              if (pricing.marketPrice > 0) {
+                resolvedPrice = pricing.marketPrice;
+              }
+            }
           }
         }
+      } catch (priceErr) {
+        console.log(`[Watchlist] Sealed price resolve skipped for "${card_name}": ${priceErr.message}`);
       }
-
-      // Step 3: Fetch market price
-      if (resolvedProductId) {
-        checkRateLimit();
-        const marketData = await getMarketData(resolvedProductId);
-        const records = extractPricingRecords(marketData, resolvedProductId);
-        if (records && records.length > 0) {
-          const pricing = formatPricingData(records, resolvedProductId, false);
-          if (pricing.marketPrice > 0) {
-            resolvedPrice = pricing.marketPrice;
-            await savePriceHistory(set_id, card_number, card_name, pricing);
-          }
-        }
-      }
-    } catch (priceErr) {
-      // Non-fatal — card still gets added, price will be filled by cron later
-      console.log(`[Watchlist] Price resolve skipped for ${set_id} #${card_number}: ${priceErr.message}`);
     }
 
-    const result = await pool.query(
-      `INSERT INTO price_watchlist (user_id, set_id, card_number, card_name, set_name, image_url, product_id, last_price, last_checked)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-       ON CONFLICT (user_id, set_id, card_number) DO NOTHING
-       RETURNING *`,
-      [
-        req.user.id, set_id, card_number, card_name || null, set_name || null,
-        image_url || null, resolvedProductId, resolvedPrice,
-        resolvedPrice ? new Date() : null
-      ]
-    );
+    let result;
+    if (type === 'sealed') {
+      result = await pool.query(
+        `INSERT INTO price_watchlist (user_id, set_id, card_number, card_name, set_name, image_url, product_id, product_type, last_price, last_checked)
+         VALUES ($1, $2, NULL, $3, $4, $5, $6, 'sealed', $7, $8)
+         ON CONFLICT DO NOTHING
+         RETURNING *`,
+        [
+          req.user.id, set_id || null, card_name, set_name || null,
+          image_url || null, resolvedProductId, resolvedPrice,
+          resolvedPrice ? new Date() : null
+        ]
+      );
+    } else {
+      result = await pool.query(
+        `INSERT INTO price_watchlist (user_id, set_id, card_number, card_name, set_name, image_url, product_id, product_type, last_price, last_checked)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 'card', $8, $9)
+         ON CONFLICT (user_id, set_id, card_number) DO NOTHING
+         RETURNING *`,
+        [
+          req.user.id, set_id, card_number, card_name || null, set_name || null,
+          image_url || null, resolvedProductId, resolvedPrice,
+          resolvedPrice ? new Date() : null
+        ]
+      );
+    }
 
     if (result.rows.length === 0) {
-      return res.status(409).json({ error: 'Card already on watchlist' });
+      return res.status(409).json({ error: type === 'sealed' ? 'Product already on watchlist' : 'Card already on watchlist' });
     }
 
-    // If we resolved a product_id, update all other users watching the same card
-    if (resolvedProductId || resolvedPrice) {
+    // If we resolved a product_id for a card, update all other users watching the same card
+    if (type === 'card' && (resolvedProductId || resolvedPrice)) {
       await pool.query(
         `UPDATE price_watchlist SET
           product_id = COALESCE(product_id, $1),
@@ -153,12 +202,37 @@ router.delete('/:id', auth, async (req, res) => {
   }
 });
 
+// PUT /api/watchlist/:id/price — manually update price (useful for sealed products)
+router.put('/:id/price', auth, async (req, res) => {
+  try {
+    const { price } = req.body;
+    if (price == null || isNaN(parseFloat(price))) {
+      return res.status(400).json({ error: 'Valid price is required' });
+    }
+
+    const result = await pool.query(
+      `UPDATE price_watchlist SET last_price = $1, last_checked = NOW()
+       WHERE id = $2 AND user_id = $3 RETURNING *`,
+      [parseFloat(price), req.params.id, req.user.id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Watchlist item not found' });
+    }
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Price update error:', err);
+    res.status(500).json({ error: 'Failed to update price' });
+  }
+});
+
 // GET /api/watchlist/summary — dashboard stats
 router.get('/summary', auth, async (req, res) => {
   try {
     const stats = await pool.query(
       `SELECT
-        COUNT(*) AS total_cards,
+        COUNT(*) AS total_items,
+        COUNT(*) FILTER (WHERE product_type = 'card') AS total_cards,
+        COUNT(*) FILTER (WHERE product_type = 'sealed') AS total_sealed,
         COUNT(*) FILTER (WHERE last_price IS NOT NULL) AS priced_cards,
         AVG(last_price) FILTER (WHERE last_price IS NOT NULL) AS avg_price,
         SUM(last_price) FILTER (WHERE last_price IS NOT NULL) AS total_value

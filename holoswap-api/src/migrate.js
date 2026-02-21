@@ -277,6 +277,16 @@ const migrate = async () => {
     CREATE INDEX IF NOT EXISTS idx_price_watchlist_user ON price_watchlist(user_id);
     CREATE INDEX IF NOT EXISTS idx_price_watchlist_product ON price_watchlist(product_id);
 
+    -- Sealed product support: add product_type, make card_number nullable
+    ALTER TABLE price_watchlist ADD COLUMN IF NOT EXISTS product_type VARCHAR(20) DEFAULT 'card';
+    ALTER TABLE price_watchlist ALTER COLUMN card_number DROP NOT NULL;
+    ALTER TABLE price_watchlist ALTER COLUMN set_id DROP NOT NULL;
+
+    -- Partial unique indexes for cards vs sealed products
+    -- (the original UNIQUE constraint still covers cards; this adds sealed)
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_pw_sealed_unique
+      ON price_watchlist(user_id, card_name) WHERE product_type = 'sealed';
+
     -- Price alerts (threshold / percentage triggers)
     CREATE TABLE IF NOT EXISTS price_alerts (
       id              SERIAL PRIMARY KEY,
