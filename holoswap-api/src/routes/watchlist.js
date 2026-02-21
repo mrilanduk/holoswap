@@ -359,4 +359,55 @@ router.put('/notifications', auth, async (req, res) => {
   }
 });
 
+// POST /api/watchlist/notifications/test — send a test notification
+router.post('/notifications/test', auth, async (req, res) => {
+  try {
+    const { channel } = req.body;
+    if (!channel) {
+      return res.status(400).json({ error: 'channel is required' });
+    }
+
+    const settings = await pool.query(
+      'SELECT * FROM notification_settings WHERE user_id = $1',
+      [req.user.id]
+    );
+    if (settings.rows.length === 0) {
+      return res.status(404).json({ error: 'No notification settings found' });
+    }
+
+    const s = settings.rows[0];
+    const { sendTelegram, sendPushover, sendNtfy, sendWebPush } = require('../lib/notifications');
+
+    const title = 'HoloSwap Test';
+    const body = 'If you can see this, notifications are working!';
+
+    switch (channel) {
+      case 'telegram':
+        if (!s.telegram_chat_id) return res.status(400).json({ error: 'No Telegram chat ID configured' });
+        await sendTelegram(s.telegram_chat_id, title, body);
+        break;
+      case 'pushover':
+        if (!s.pushover_user_key) return res.status(400).json({ error: 'No Pushover user key configured' });
+        await sendPushover(s.pushover_user_key, title, body);
+        break;
+      case 'ntfy':
+        if (!s.ntfy_topic) return res.status(400).json({ error: 'No ntfy topic configured' });
+        await sendNtfy(s.ntfy_topic, title, body);
+        break;
+      case 'web_push':
+        if (!s.web_push_sub) return res.status(400).json({ error: 'No web push subscription' });
+        const sub = typeof s.web_push_sub === 'string' ? JSON.parse(s.web_push_sub) : s.web_push_sub;
+        await sendWebPush(sub, title, body);
+        break;
+      default:
+        return res.status(400).json({ error: `Unknown channel: ${channel}` });
+    }
+
+    res.json({ message: `Test notification sent via ${channel}` });
+  } catch (err) {
+    console.error('Test notification error:', err);
+    res.status(500).json({ error: err.message || 'Failed to send test notification' });
+  }
+});
+
 module.exports = router;
