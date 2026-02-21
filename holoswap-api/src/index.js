@@ -14,6 +14,8 @@ const shippingRoutes = require('./routes/shipping');
 const bindersRoutes = require('./routes/binders');
 const pricingRoutes = require('./routes/pricing');
 const vendingRoutes = require('./routes/vending');
+const watchlistRoutes = require('./routes/watchlist');
+const { startPriceMonitor } = require('./jobs/price-monitor');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -38,6 +40,7 @@ app.use('/api/shipping', shippingRoutes);
 app.use('/api/binders', bindersRoutes);
 app.use('/api/pricing', pricingRoutes);
 app.use('/api/vending', vendingRoutes);
+app.use('/api/watchlist', watchlistRoutes);
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', service: 'holoswap-api', timestamp: new Date().toISOString() });
@@ -49,4 +52,5 @@ app.use((req, res) => {
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log('HoloSwap API running on port ' + PORT);
+  startPriceMonitor();
 });

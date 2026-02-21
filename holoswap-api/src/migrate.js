@@ -259,6 +259,68 @@ const migrate = async () => {
     -- Vendor prize wheel toggle
     ALTER TABLE users ADD COLUMN IF NOT EXISTS prize_wheel_enabled BOOLEAN DEFAULT FALSE;
 
+    -- Price watchlist (cards users are tracking)
+    CREATE TABLE IF NOT EXISTS price_watchlist (
+      id            SERIAL PRIMARY KEY,
+      user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      set_id        VARCHAR(50) NOT NULL,
+      card_number   VARCHAR(50) NOT NULL,
+      card_name     VARCHAR(255),
+      set_name      VARCHAR(255),
+      image_url     TEXT,
+      product_id    VARCHAR(100),
+      last_price    DECIMAL(10,2),
+      last_checked  TIMESTAMPTZ,
+      created_at    TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(user_id, set_id, card_number)
+    );
+    CREATE INDEX IF NOT EXISTS idx_price_watchlist_user ON price_watchlist(user_id);
+    CREATE INDEX IF NOT EXISTS idx_price_watchlist_product ON price_watchlist(product_id);
+
+    -- Price alerts (threshold / percentage triggers)
+    CREATE TABLE IF NOT EXISTS price_alerts (
+      id              SERIAL PRIMARY KEY,
+      user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      watchlist_id    INTEGER NOT NULL REFERENCES price_watchlist(id) ON DELETE CASCADE,
+      alert_type      VARCHAR(20) NOT NULL,
+      threshold       DECIMAL(10,2) NOT NULL,
+      is_active       BOOLEAN DEFAULT TRUE,
+      last_triggered  TIMESTAMPTZ,
+      cooldown_hours  INTEGER DEFAULT 24,
+      created_at      TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_price_alerts_watchlist ON price_alerts(watchlist_id);
+    CREATE INDEX IF NOT EXISTS idx_price_alerts_user ON price_alerts(user_id);
+    CREATE INDEX IF NOT EXISTS idx_price_alerts_active ON price_alerts(is_active) WHERE is_active = TRUE;
+
+    -- Notification settings (per user, one row each)
+    CREATE TABLE IF NOT EXISTS notification_settings (
+      id                SERIAL PRIMARY KEY,
+      user_id           INTEGER UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      web_push_sub      JSONB,
+      telegram_chat_id  VARCHAR(100),
+      pushover_user_key VARCHAR(100),
+      ntfy_topic        VARCHAR(100),
+      channels_enabled  JSONB DEFAULT '[]'::jsonb,
+      created_at        TIMESTAMPTZ DEFAULT NOW(),
+      updated_at        TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    -- Notification log (delivery audit trail)
+    CREATE TABLE IF NOT EXISTS notification_log (
+      id              SERIAL PRIMARY KEY,
+      user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      alert_id        INTEGER REFERENCES price_alerts(id) ON DELETE SET NULL,
+      channel         VARCHAR(20) NOT NULL,
+      title           VARCHAR(255),
+      body            TEXT,
+      status          VARCHAR(20) DEFAULT 'pending',
+      error_message   TEXT,
+      created_at      TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_notification_log_user ON notification_log(user_id);
+    CREATE INDEX IF NOT EXISTS idx_notification_log_created ON notification_log(created_at DESC);
+
   `);
 
   // Backfill pokepulse_set_id from existing set_id (pure SQL, no API calls)
@@ -306,8 +368,12 @@ const migrate = async () => {
   console.log('   - vending_daily_summaries');
   console.log('   - prize_wheel_config');
   console.log('   - prize_wheel_spins');
+  console.log('   - price_watchlist');
+  console.log('   - price_alerts');
+  console.log('   - notification_settings');
+  console.log('   - notification_log');
 
-  const tables = ['waitlist', 'users', 'cards', 'want_list', 'submissions', 'binders', 'binder_cards', 'vending_lookups', 'vending_daily_summaries', 'prize_wheel_config', 'prize_wheel_spins'];
+  const tables = ['waitlist', 'users', 'cards', 'want_list', 'submissions', 'binders', 'binder_cards', 'vending_lookups', 'vending_daily_summaries', 'prize_wheel_config', 'prize_wheel_spins', 'price_watchlist', 'price_alerts', 'notification_settings', 'notification_log'];
   console.log('\n📊 Current data:');
   for (const t of tables) {
     const r = await pool.query(`SELECT COUNT(*) FROM ${t}`);
