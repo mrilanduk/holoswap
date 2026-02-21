@@ -149,9 +149,10 @@ async function runPriceMonitor() {
                 const { dispatchNotification } = require('../lib/notifications');
                 const pctChange = ((newPrice - oldPrice) / oldPrice * 100).toFixed(1);
                 const direction = newPrice > oldPrice ? 'up' : 'down';
+                const arrow = direction === 'up' ? '📈' : '📉';
 
                 await dispatchNotification(alert.user_id, alert.id, {
-                  title: `${card.card_name} price ${direction}`,
+                  title: `${arrow} ${card.card_name} price ${direction}`,
                   body: `${card.card_name} (${card.set_id} #${card.card_number}) is now £${newPrice.toFixed(2)} (${direction === 'up' ? '+' : ''}${pctChange}% from £${oldPrice.toFixed(2)})`
                 });
               } catch (notifErr) {

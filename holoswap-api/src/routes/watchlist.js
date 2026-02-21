@@ -359,7 +359,7 @@ router.put('/notifications', auth, async (req, res) => {
   }
 });
 
-// POST /api/watchlist/notifications/test — send a test notification
+// POST /api/watchlist/notifications/test — send a realistic sample alert
 router.post('/notifications/test', auth, async (req, res) => {
   try {
     const { channel } = req.body;
@@ -375,11 +375,37 @@ router.post('/notifications/test', auth, async (req, res) => {
       return res.status(404).json({ error: 'No notification settings found' });
     }
 
+    // Build a realistic sample alert — use a real card from their watchlist if possible
+    let cardName = 'Charizard ex';
+    let setId = 'sv3pt5';
+    let cardNumber = '6';
+    let oldPrice = 52.40;
+    let newPrice = 45.80;
+
+    const watchCard = await pool.query(
+      `SELECT card_name, set_id, card_number, last_price FROM price_watchlist
+       WHERE user_id = $1 AND last_price IS NOT NULL
+       ORDER BY RANDOM() LIMIT 1`,
+      [req.user.id]
+    );
+    if (watchCard.rows.length > 0) {
+      const c = watchCard.rows[0];
+      cardName = c.card_name || cardName;
+      setId = c.set_id || setId;
+      cardNumber = c.card_number || cardNumber;
+      oldPrice = parseFloat(c.last_price) * 1.15;
+      newPrice = parseFloat(c.last_price);
+    }
+
+    const pctChange = (((newPrice - oldPrice) / oldPrice) * 100).toFixed(1);
+    const direction = newPrice > oldPrice ? 'up' : 'down';
+    const arrow = direction === 'up' ? '📈' : '📉';
+
+    const title = `${arrow} ${cardName} price ${direction}`;
+    const body = `${cardName} (${setId} #${cardNumber}) is now £${newPrice.toFixed(2)} (${direction === 'up' ? '+' : ''}${pctChange}% from £${oldPrice.toFixed(2)})`;
+
     const s = settings.rows[0];
     const { sendTelegram, sendPushover, sendNtfy, sendWebPush } = require('../lib/notifications');
-
-    const title = 'HoloSwap Test';
-    const body = 'If you can see this, notifications are working!';
 
     switch (channel) {
       case 'telegram':
@@ -403,7 +429,7 @@ router.post('/notifications/test', auth, async (req, res) => {
         return res.status(400).json({ error: `Unknown channel: ${channel}` });
     }
 
-    res.json({ message: `Test notification sent via ${channel}` });
+    res.json({ message: `Test alert sent via ${channel}` });
   } catch (err) {
     console.error('Test notification error:', err);
     res.status(500).json({ error: err.message || 'Failed to send test notification' });
