@@ -383,6 +383,7 @@ const migrate = async () => {
     ALTER TABLE users ADD COLUMN IF NOT EXISTS vendor_trade_lp NUMERIC(4,2);
     ALTER TABLE users ADD COLUMN IF NOT EXISTS vendor_trade_mp NUMERIC(4,2);
     ALTER TABLE users ADD COLUMN IF NOT EXISTS vendor_trade_hp NUMERIC(4,2);
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS vendor_font VARCHAR(255);
 
   `);
 

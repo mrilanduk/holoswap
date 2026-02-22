@@ -365,7 +365,7 @@ router.get('/vendor/:code', async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT display_name, vendor_code,
-              vendor_accent_color, vendor_logo_url, vendor_title,
+              vendor_accent_color, vendor_logo_url, vendor_title, vendor_font,
               vendor_buy_nm, vendor_buy_lp, vendor_buy_mp, vendor_buy_hp,
               vendor_trade_nm, vendor_trade_lp, vendor_trade_mp, vendor_trade_hp
        FROM users WHERE UPPER(vendor_code) = UPPER($1) AND is_vendor = true`,
@@ -558,7 +558,7 @@ router.get('/vendors', auth, async (req, res) => {
     }
     const result = await pool.query(
       `SELECT id, display_name, vendor_code,
-              vendor_accent_color, vendor_logo_url, vendor_title,
+              vendor_accent_color, vendor_logo_url, vendor_title, vendor_font,
               vendor_buy_nm, vendor_buy_lp, vendor_buy_mp, vendor_buy_hp,
               vendor_trade_nm, vendor_trade_lp, vendor_trade_mp, vendor_trade_hp
        FROM users WHERE is_vendor = true ORDER BY display_name`
@@ -578,28 +578,29 @@ router.put('/vendors/:id/settings', auth, async (req, res) => {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
-    const { accent_color, logo_url, title, buy_nm, buy_lp, buy_mp, buy_hp, trade_nm, trade_lp, trade_mp, trade_hp } = req.body;
+    const { accent_color, logo_url, title, font, buy_nm, buy_lp, buy_mp, buy_hp, trade_nm, trade_lp, trade_mp, trade_hp } = req.body;
 
     const result = await pool.query(
       `UPDATE users SET
         vendor_accent_color = COALESCE($1, vendor_accent_color),
         vendor_logo_url = COALESCE($2, vendor_logo_url),
         vendor_title = COALESCE($3, vendor_title),
-        vendor_buy_nm = COALESCE($4, vendor_buy_nm),
-        vendor_buy_lp = COALESCE($5, vendor_buy_lp),
-        vendor_buy_mp = COALESCE($6, vendor_buy_mp),
-        vendor_buy_hp = COALESCE($7, vendor_buy_hp),
-        vendor_trade_nm = COALESCE($8, vendor_trade_nm),
-        vendor_trade_lp = COALESCE($9, vendor_trade_lp),
-        vendor_trade_mp = COALESCE($10, vendor_trade_mp),
-        vendor_trade_hp = COALESCE($11, vendor_trade_hp),
+        vendor_font = COALESCE($4, vendor_font),
+        vendor_buy_nm = COALESCE($5, vendor_buy_nm),
+        vendor_buy_lp = COALESCE($6, vendor_buy_lp),
+        vendor_buy_mp = COALESCE($7, vendor_buy_mp),
+        vendor_buy_hp = COALESCE($8, vendor_buy_hp),
+        vendor_trade_nm = COALESCE($9, vendor_trade_nm),
+        vendor_trade_lp = COALESCE($10, vendor_trade_lp),
+        vendor_trade_mp = COALESCE($11, vendor_trade_mp),
+        vendor_trade_hp = COALESCE($12, vendor_trade_hp),
         updated_at = NOW()
-       WHERE id = $12 AND is_vendor = true
+       WHERE id = $13 AND is_vendor = true
        RETURNING id, display_name, vendor_code,
-                 vendor_accent_color, vendor_logo_url, vendor_title,
+                 vendor_accent_color, vendor_logo_url, vendor_title, vendor_font,
                  vendor_buy_nm, vendor_buy_lp, vendor_buy_mp, vendor_buy_hp,
                  vendor_trade_nm, vendor_trade_lp, vendor_trade_mp, vendor_trade_hp`,
-      [accent_color ?? null, logo_url ?? null, title ?? null,
+      [accent_color ?? null, logo_url ?? null, title ?? null, font ?? null,
        buy_nm ?? null, buy_lp ?? null, buy_mp ?? null, buy_hp ?? null,
        trade_nm ?? null, trade_lp ?? null, trade_mp ?? null, trade_hp ?? null,
        parseInt(req.params.id)]
