@@ -555,12 +555,15 @@ router.get('/submissions', auth, async (req, res) => {
     }
 
     let result;
+    const selectFields = `SELECT ss.*,
+          (SELECT COUNT(*) FROM seller_submission_items WHERE submission_id = ss.submission_id) as item_count,
+          (SELECT COALESCE(SUM(market_price), 0) FROM seller_submission_items WHERE submission_id = ss.submission_id) as total_market,
+          (SELECT COALESCE(SUM(offer_price), 0) FROM seller_submission_items WHERE submission_id = ss.submission_id AND offer_price IS NOT NULL) as calc_total_offered
+         FROM seller_submissions ss`;
+
     if (user.is_admin) {
-      // Admins see submissions without a vendor (their own) or all if no vendor filter
       result = await pool.query(
-        `SELECT ss.*,
-          (SELECT COUNT(*) FROM seller_submission_items WHERE submission_id = ss.submission_id) as item_count
-         FROM seller_submissions ss
+        `${selectFields}
          WHERE ss.status = $1
          ORDER BY ss.created_at DESC
          LIMIT 100`,
@@ -569,9 +572,7 @@ router.get('/submissions', auth, async (req, res) => {
     } else {
       // Vendors only see their own submissions
       result = await pool.query(
-        `SELECT ss.*,
-          (SELECT COUNT(*) FROM seller_submission_items WHERE submission_id = ss.submission_id) as item_count
-         FROM seller_submissions ss
+        `${selectFields}
          WHERE ss.status = $1 AND ss.vendor_id = $2
          ORDER BY ss.created_at DESC
          LIMIT 100`,
@@ -590,7 +591,10 @@ router.get('/submissions', auth, async (req, res) => {
 router.get('/submissions/:id', auth, async (req, res) => {
   try {
     const sub = await pool.query(
-      'SELECT * FROM seller_submissions WHERE submission_id = $1',
+      `SELECT ss.*,
+        (SELECT COALESCE(SUM(market_price), 0) FROM seller_submission_items WHERE submission_id = ss.submission_id) as total_market,
+        (SELECT COALESCE(SUM(offer_price), 0) FROM seller_submission_items WHERE submission_id = ss.submission_id AND offer_price IS NOT NULL) as calc_total_offered
+       FROM seller_submissions ss WHERE ss.submission_id = $1`,
       [req.params.id]
     );
     if (sub.rows.length === 0) {
