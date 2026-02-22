@@ -364,7 +364,11 @@ async function buildLookupResult(card, cardNumber) {
 router.get('/vendor/:code', async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT display_name, vendor_code FROM users WHERE UPPER(vendor_code) = UPPER($1) AND is_vendor = true',
+      `SELECT display_name, vendor_code,
+              vendor_accent_color, vendor_logo_url, vendor_title,
+              vendor_buy_nm, vendor_buy_lp, vendor_buy_mp, vendor_buy_hp,
+              vendor_trade_nm, vendor_trade_lp, vendor_trade_mp, vendor_trade_hp
+       FROM users WHERE UPPER(vendor_code) = UPPER($1) AND is_vendor = true`,
       [req.params.code]
     );
     if (result.rows.length === 0) {
@@ -544,6 +548,72 @@ router.get('/submission/:id/status', async (req, res) => {
 // ──────────────────────────────────────────────────────────────
 // ADMIN ENDPOINTS (auth required)
 // ──────────────────────────────────────────────────────────────
+
+// GET /api/seller/vendors — list all vendors (admin only)
+router.get('/vendors', auth, async (req, res) => {
+  try {
+    const userResult = await pool.query('SELECT is_admin FROM users WHERE id = $1', [req.user.id]);
+    if (!userResult.rows[0]?.is_admin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    const result = await pool.query(
+      `SELECT id, display_name, vendor_code,
+              vendor_accent_color, vendor_logo_url, vendor_title,
+              vendor_buy_nm, vendor_buy_lp, vendor_buy_mp, vendor_buy_hp,
+              vendor_trade_nm, vendor_trade_lp, vendor_trade_mp, vendor_trade_hp
+       FROM users WHERE is_vendor = true ORDER BY display_name`
+    );
+    res.json({ vendors: result.rows });
+  } catch (err) {
+    console.error('[Seller] List vendors error:', err);
+    res.status(500).json({ error: 'Failed to load vendors' });
+  }
+});
+
+// PUT /api/seller/vendors/:id/settings — update vendor personalisation (admin only)
+router.put('/vendors/:id/settings', auth, async (req, res) => {
+  try {
+    const userResult = await pool.query('SELECT is_admin FROM users WHERE id = $1', [req.user.id]);
+    if (!userResult.rows[0]?.is_admin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const { accent_color, logo_url, title, buy_nm, buy_lp, buy_mp, buy_hp, trade_nm, trade_lp, trade_mp, trade_hp } = req.body;
+
+    const result = await pool.query(
+      `UPDATE users SET
+        vendor_accent_color = COALESCE($1, vendor_accent_color),
+        vendor_logo_url = COALESCE($2, vendor_logo_url),
+        vendor_title = COALESCE($3, vendor_title),
+        vendor_buy_nm = COALESCE($4, vendor_buy_nm),
+        vendor_buy_lp = COALESCE($5, vendor_buy_lp),
+        vendor_buy_mp = COALESCE($6, vendor_buy_mp),
+        vendor_buy_hp = COALESCE($7, vendor_buy_hp),
+        vendor_trade_nm = COALESCE($8, vendor_trade_nm),
+        vendor_trade_lp = COALESCE($9, vendor_trade_lp),
+        vendor_trade_mp = COALESCE($10, vendor_trade_mp),
+        vendor_trade_hp = COALESCE($11, vendor_trade_hp),
+        updated_at = NOW()
+       WHERE id = $12 AND is_vendor = true
+       RETURNING id, display_name, vendor_code,
+                 vendor_accent_color, vendor_logo_url, vendor_title,
+                 vendor_buy_nm, vendor_buy_lp, vendor_buy_mp, vendor_buy_hp,
+                 vendor_trade_nm, vendor_trade_lp, vendor_trade_mp, vendor_trade_hp`,
+      [accent_color ?? null, logo_url ?? null, title ?? null,
+       buy_nm ?? null, buy_lp ?? null, buy_mp ?? null, buy_hp ?? null,
+       trade_nm ?? null, trade_lp ?? null, trade_mp ?? null, trade_hp ?? null,
+       parseInt(req.params.id)]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Vendor not found' });
+    }
+    res.json({ success: true, vendor: result.rows[0] });
+  } catch (err) {
+    console.error('[Seller] Update vendor settings error:', err);
+    res.status(500).json({ error: 'Failed to update vendor settings' });
+  }
+});
 
 // GET /api/seller/submissions — list submissions (filtered by vendor for non-admins)
 router.get('/submissions', auth, async (req, res) => {

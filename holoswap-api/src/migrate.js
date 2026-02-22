@@ -371,6 +371,19 @@ const migrate = async () => {
     );
     CREATE INDEX IF NOT EXISTS idx_seller_items_submission ON seller_submission_items(submission_id);
 
+    -- Vendor personalisation settings
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS vendor_accent_color VARCHAR(20);
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS vendor_logo_url TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS vendor_title VARCHAR(100);
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS vendor_buy_nm NUMERIC(4,2);
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS vendor_buy_lp NUMERIC(4,2);
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS vendor_buy_mp NUMERIC(4,2);
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS vendor_buy_hp NUMERIC(4,2);
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS vendor_trade_nm NUMERIC(4,2);
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS vendor_trade_lp NUMERIC(4,2);
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS vendor_trade_mp NUMERIC(4,2);
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS vendor_trade_hp NUMERIC(4,2);
+
   `);
 
   // Backfill pokepulse_set_id from existing set_id (pure SQL, no API calls)
