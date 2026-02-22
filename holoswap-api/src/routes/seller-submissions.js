@@ -428,6 +428,9 @@ router.post('/submit', async (req, res) => {
     if (!seller_name || !seller_name.trim()) {
       return res.status(400).json({ error: 'Your name is required' });
     }
+    if ((!seller_email || !seller_email.trim()) && (!seller_phone || !seller_phone.trim())) {
+      return res.status(400).json({ error: 'Email or phone number is required' });
+    }
     if (!items || !Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ error: 'At least one card is required' });
     }
