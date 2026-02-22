@@ -331,6 +331,42 @@ const migrate = async () => {
     CREATE INDEX IF NOT EXISTS idx_notification_log_user ON notification_log(user_id);
     CREATE INDEX IF NOT EXISTS idx_notification_log_created ON notification_log(created_at DESC);
 
+    -- Seller submissions (TrainerMart Trade — cards offered for sale by public)
+    CREATE TABLE IF NOT EXISTS seller_submissions (
+      id              SERIAL PRIMARY KEY,
+      submission_id   VARCHAR(50) UNIQUE NOT NULL,
+      seller_name     VARCHAR(255) NOT NULL,
+      seller_email    VARCHAR(255),
+      seller_phone    VARCHAR(50),
+      status          VARCHAR(20) DEFAULT 'pending',
+      admin_notes     TEXT,
+      total_items     INTEGER DEFAULT 0,
+      total_asking    NUMERIC(10,2),
+      total_offered   NUMERIC(10,2),
+      created_at      TIMESTAMPTZ DEFAULT NOW(),
+      updated_at      TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_seller_submissions_status ON seller_submissions(status);
+    CREATE INDEX IF NOT EXISTS idx_seller_submissions_created ON seller_submissions(created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS seller_submission_items (
+      id              SERIAL PRIMARY KEY,
+      submission_id   VARCHAR(50) REFERENCES seller_submissions(submission_id) ON DELETE CASCADE,
+      card_name       VARCHAR(255),
+      set_name        VARCHAR(255),
+      set_id          VARCHAR(100),
+      card_number     VARCHAR(50),
+      image_url       TEXT,
+      market_price    NUMERIC(10,2),
+      asking_price    NUMERIC(10,2),
+      offer_price     NUMERIC(10,2),
+      condition       VARCHAR(10) DEFAULT 'NM',
+      status          VARCHAR(20) DEFAULT 'pending',
+      notes           TEXT,
+      created_at      TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_seller_items_submission ON seller_submission_items(submission_id);
+
   `);
 
   // Backfill pokepulse_set_id from existing set_id (pure SQL, no API calls)
@@ -382,8 +418,10 @@ const migrate = async () => {
   console.log('   - price_alerts');
   console.log('   - notification_settings');
   console.log('   - notification_log');
+  console.log('   - seller_submissions');
+  console.log('   - seller_submission_items');
 
-  const tables = ['waitlist', 'users', 'cards', 'want_list', 'submissions', 'binders', 'binder_cards', 'vending_lookups', 'vending_daily_summaries', 'prize_wheel_config', 'prize_wheel_spins', 'price_watchlist', 'price_alerts', 'notification_settings', 'notification_log'];
+  const tables = ['waitlist', 'users', 'cards', 'want_list', 'submissions', 'binders', 'binder_cards', 'vending_lookups', 'vending_daily_summaries', 'prize_wheel_config', 'prize_wheel_spins', 'price_watchlist', 'price_alerts', 'notification_settings', 'notification_log', 'seller_submissions', 'seller_submission_items'];
   console.log('\n📊 Current data:');
   for (const t of tables) {
     const r = await pool.query(`SELECT COUNT(*) FROM ${t}`);

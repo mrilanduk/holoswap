@@ -15,6 +15,7 @@ const bindersRoutes = require('./routes/binders');
 const pricingRoutes = require('./routes/pricing');
 const vendingRoutes = require('./routes/vending');
 const watchlistRoutes = require('./routes/watchlist');
+const sellerRoutes = require('./routes/seller-submissions');
 const { startPriceMonitor } = require('./jobs/price-monitor');
 
 const app = express();
@@ -41,6 +42,7 @@ app.use('/api/binders', bindersRoutes);
 app.use('/api/pricing', pricingRoutes);
 app.use('/api/vending', vendingRoutes);
 app.use('/api/watchlist', watchlistRoutes);
+app.use('/api/seller', sellerRoutes);
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', service: 'holoswap-api', timestamp: new Date().toISOString() });
