@@ -360,6 +360,23 @@ async function buildLookupResult(card, cardNumber) {
 // PUBLIC ENDPOINTS
 // ──────────────────────────────────────────────────────────────
 
+// GET /api/seller/vendor/:code — get vendor display name
+router.get('/vendor/:code', async (req, res) => {
+  try {
+    const result = await pool.query(
+      'SELECT display_name, vendor_code FROM users WHERE UPPER(vendor_code) = UPPER($1) AND is_vendor = true',
+      [req.params.code]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Vendor not found' });
+    }
+    res.json({ vendor: result.rows[0] });
+  } catch (err) {
+    console.error('[Seller] Vendor info error:', err);
+    res.status(500).json({ error: 'Failed to load vendor info' });
+  }
+});
+
 // POST /api/seller/lookup — card search
 router.post('/lookup', async (req, res) => {
   try {
@@ -406,7 +423,7 @@ router.post('/lookup-card', async (req, res) => {
 // POST /api/seller/submit — submit basket of cards to sell
 router.post('/submit', async (req, res) => {
   try {
-    const { seller_name, seller_email, seller_phone, items } = req.body;
+    const { seller_name, seller_email, seller_phone, vendor_code, items } = req.body;
 
     if (!seller_name || !seller_name.trim()) {
       return res.status(400).json({ error: 'Your name is required' });
@@ -418,6 +435,16 @@ router.post('/submit', async (req, res) => {
       return res.status(400).json({ error: 'Maximum 100 items per submission' });
     }
 
+    // Resolve vendor
+    let vendorId = null;
+    if (vendor_code) {
+      const vr = await pool.query(
+        'SELECT id FROM users WHERE UPPER(vendor_code) = UPPER($1) AND is_vendor = true',
+        [vendor_code]
+      );
+      if (vr.rows.length > 0) vendorId = vr.rows[0].id;
+    }
+
     // Generate unique submission ID
     const timestamp = Date.now();
     const random = Math.random().toString(36).substring(2, 8);
@@ -427,9 +454,9 @@ router.post('/submit', async (req, res) => {
 
     // Create submission
     await pool.query(
-      `INSERT INTO seller_submissions (submission_id, seller_name, seller_email, seller_phone, total_items, total_asking)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [submissionId, seller_name.trim(), seller_email || null, seller_phone || null, items.length, totalAsking || null]
+      `INSERT INTO seller_submissions (submission_id, seller_name, seller_email, seller_phone, total_items, total_asking, vendor_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [submissionId, seller_name.trim(), seller_email || null, seller_phone || null, items.length, totalAsking || null, vendorId]
     );
 
     // Insert items
@@ -515,19 +542,43 @@ router.get('/submission/:id/status', async (req, res) => {
 // ADMIN ENDPOINTS (auth required)
 // ──────────────────────────────────────────────────────────────
 
-// GET /api/seller/submissions — list all submissions
+// GET /api/seller/submissions — list submissions (filtered by vendor for non-admins)
 router.get('/submissions', auth, async (req, res) => {
   try {
     const status = req.query.status || 'pending';
-    const result = await pool.query(
-      `SELECT ss.*,
-        (SELECT COUNT(*) FROM seller_submission_items WHERE submission_id = ss.submission_id) as item_count
-       FROM seller_submissions ss
-       WHERE ss.status = $1
-       ORDER BY ss.created_at DESC
-       LIMIT 100`,
-      [status]
-    );
+
+    // Check if user is admin or vendor
+    const userResult = await pool.query('SELECT is_admin, is_vendor FROM users WHERE id = $1', [req.user.id]);
+    const user = userResult.rows[0];
+    if (!user || (!user.is_admin && !user.is_vendor)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    let result;
+    if (user.is_admin) {
+      // Admins see submissions without a vendor (their own) or all if no vendor filter
+      result = await pool.query(
+        `SELECT ss.*,
+          (SELECT COUNT(*) FROM seller_submission_items WHERE submission_id = ss.submission_id) as item_count
+         FROM seller_submissions ss
+         WHERE ss.status = $1
+         ORDER BY ss.created_at DESC
+         LIMIT 100`,
+        [status]
+      );
+    } else {
+      // Vendors only see their own submissions
+      result = await pool.query(
+        `SELECT ss.*,
+          (SELECT COUNT(*) FROM seller_submission_items WHERE submission_id = ss.submission_id) as item_count
+         FROM seller_submissions ss
+         WHERE ss.status = $1 AND ss.vendor_id = $2
+         ORDER BY ss.created_at DESC
+         LIMIT 100`,
+        [status, req.user.id]
+      );
+    }
+
     res.json({ submissions: result.rows });
   } catch (err) {
     console.error('[Seller] List submissions error:', err);

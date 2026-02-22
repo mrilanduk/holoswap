@@ -349,6 +349,10 @@ const migrate = async () => {
     CREATE INDEX IF NOT EXISTS idx_seller_submissions_status ON seller_submissions(status);
     CREATE INDEX IF NOT EXISTS idx_seller_submissions_created ON seller_submissions(created_at DESC);
 
+    -- Seller submissions: vendor support
+    ALTER TABLE seller_submissions ADD COLUMN IF NOT EXISTS vendor_id INTEGER REFERENCES users(id);
+    CREATE INDEX IF NOT EXISTS idx_seller_submissions_vendor ON seller_submissions(vendor_id);
+
     CREATE TABLE IF NOT EXISTS seller_submission_items (
       id              SERIAL PRIMARY KEY,
       submission_id   VARCHAR(50) REFERENCES seller_submissions(submission_id) ON DELETE CASCADE,
