@@ -182,4 +182,53 @@ async function sendSubmissionEmail(vendorEmail, submission, items) {
   console.log(`[Email] Submission notification sent to ${vendorEmail} for ${submission.submission_id}`);
 }
 
-module.exports = { sendSubmissionEmail };
+async function sendTestEmail(toAddress) {
+  if (!transporter) {
+    return { success: false, error: 'SMTP not configured — check SMTP_HOST in .env' };
+  }
+
+  const fromAddr = process.env.SMTP_FROM || process.env.SMTP_USER;
+
+  const html = `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"/></head>
+<body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;background:#f0f2f5;">
+  <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#f0f2f5;">
+    <tr><td align="center" style="padding:32px 16px;">
+      <table cellpadding="0" cellspacing="0" border="0" width="480" style="max-width:480px;">
+        <tr><td style="background:#444;border-radius:16px 16px 0 0;padding:24px 28px;">
+          <h1 style="margin:0;color:#fff;font-size:20px;font-weight:700;">Test Email</h1>
+          <p style="margin:4px 0 0;color:rgba(255,255,255,0.6);font-size:13px;">TrainerMart Trade</p>
+        </td></tr>
+        <tr><td style="background:#fff;padding:28px;border-left:1px solid #e0e0e0;border-right:1px solid #e0e0e0;">
+          <p style="margin:0;font-size:15px;color:#1a1a1a;">If you're reading this, email delivery is working correctly.</p>
+          <p style="margin:12px 0 0;font-size:13px;color:#888;">From: ${fromAddr}</p>
+          <p style="margin:4px 0 0;font-size:13px;color:#888;">To: ${toAddress}</p>
+          <p style="margin:4px 0 0;font-size:13px;color:#888;">Sent: ${new Date().toLocaleString('en-GB')}</p>
+        </td></tr>
+        <tr><td style="background:#444;border-radius:0 0 16px 16px;padding:14px 28px;text-align:center;">
+          <p style="margin:0;color:rgba(255,255,255,0.5);font-size:11px;">TrainerMart Trade &mdash; Test email</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+
+  try {
+    const info = await transporter.sendMail({
+      from: `"TrainerMart Trade" <${fromAddr}>`,
+      to: toAddress,
+      subject: 'TrainerMart Trade — Test Email',
+      html,
+    });
+    console.log(`[Email] Test email sent to ${toAddress}`, info.messageId);
+    return { success: true, messageId: info.messageId };
+  } catch (err) {
+    console.error(`[Email] Test email failed:`, err.message);
+    return { success: false, error: err.message };
+  }
+}
+
+module.exports = { sendSubmissionEmail, sendTestEmail };

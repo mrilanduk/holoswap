@@ -9,7 +9,7 @@ const {
   findCachedProducts, cacheCatalogueResults,
 } = require('../lib/pricing');
 
-const { sendSubmissionEmail } = require('../lib/email');
+const { sendSubmissionEmail, sendTestEmail } = require('../lib/email');
 
 const router = Router();
 
@@ -633,6 +633,34 @@ router.put('/vendors/:id/settings', auth, async (req, res) => {
   } catch (err) {
     console.error('[Seller] Update vendor settings error:', err);
     res.status(500).json({ error: 'Failed to update vendor settings' });
+  }
+});
+
+// POST /api/seller/vendors/:id/test-email — send a test email to vendor (admin only)
+router.post('/vendors/:id/test-email', auth, async (req, res) => {
+  try {
+    const userResult = await pool.query('SELECT is_admin FROM users WHERE id = $1', [req.user.id]);
+    if (!userResult.rows[0]?.is_admin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const vendor = await pool.query(
+      'SELECT vendor_email, display_name FROM users WHERE id = $1 AND is_vendor = true',
+      [parseInt(req.params.id)]
+    );
+    if (vendor.rows.length === 0) {
+      return res.json({ success: false, error: 'Vendor not found' });
+    }
+    const vendorEmail = vendor.rows[0].vendor_email;
+    if (!vendorEmail) {
+      return res.json({ success: false, error: 'No email address set for this vendor' });
+    }
+
+    const result = await sendTestEmail(vendorEmail);
+    res.json(result);
+  } catch (err) {
+    console.error('[Seller] Test email error:', err);
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 
