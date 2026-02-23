@@ -175,6 +175,7 @@ async function sendSubmissionEmail(vendorEmail, submission, items) {
   await transporter.sendMail({
     from: `"TrainerMart Trade" <${fromAddr}>`,
     to: vendorEmail,
+    replyTo: submission.seller_email || undefined,
     subject: `New Submission: ${items.length} card${items.length !== 1 ? 's' : ''} from ${submission.seller_name} (${submission.submission_id})`,
     html,
   });
