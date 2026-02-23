@@ -29,34 +29,40 @@ async function sendSubmissionEmail(vendorEmail, submission, items) {
     HP: '#dc2626',
   };
 
-  const itemCards = items.map(item => {
+  const itemRows = items.map(item => {
     const condition = item.condition || 'NM';
     const condColor = conditionColors[condition] || '#888';
-    const offered = item.asking_price ? `£${parseFloat(item.asking_price).toFixed(2)}` : 'N/A';
-    const imgCell = item.image_url
-      ? `<td style="padding:12px 12px 12px 0;border-bottom:1px solid #f0f0f0;width:64px;vertical-align:top;">
-           <img src="${item.image_url}" alt="${item.card_name || ''}" width="64" style="display:block;border-radius:6px;" />
-         </td>`
-      : `<td style="padding:12px 12px 12px 0;border-bottom:1px solid #f0f0f0;width:64px;vertical-align:top;">
-           <div style="width:64px;height:90px;background:#f0f0f0;border-radius:6px;">&nbsp;</div>
-         </td>`;
+    const market = item.market_price ? parseFloat(item.market_price) : 0;
+    const offered = item.asking_price ? parseFloat(item.asking_price) : 0;
+    const profit = market - offered;
+    const marketStr = market ? `£${market.toFixed(2)}` : 'N/A';
+    const offeredStr = offered ? `£${offered.toFixed(2)}` : 'N/A';
+    const profitStr = (market && offered) ? `£${profit.toFixed(2)}` : '-';
 
     return `
       <tr>
-        ${imgCell}
-        <td style="padding:12px 0;border-bottom:1px solid #f0f0f0;vertical-align:top;">
-          <div style="font-weight:700;font-size:15px;color:#1a1a1a;margin-bottom:2px;">${item.card_name || 'Unknown'}</div>
-          <div style="font-size:13px;color:#888;margin-bottom:6px;">${item.set_name || ''} #${item.card_number || ''}</div>
-          <table cellpadding="0" cellspacing="0" border="0"><tr><td style="background:${condColor};color:#fff;font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;line-height:18px;">${condition}</td></tr></table>
+        <td style="padding:10px 8px;border-bottom:1px solid #eee;vertical-align:top;">
+          <div style="font-weight:700;font-size:14px;color:#1a1a1a;margin-bottom:2px;">${item.card_name || 'Unknown'}</div>
+          <div style="font-size:12px;color:#888;">${item.set_name || ''} #${item.card_number || ''}</div>
         </td>
-        <td style="padding:12px 0 12px 8px;border-bottom:1px solid #f0f0f0;vertical-align:top;text-align:right;width:80px;">
-          <div style="font-size:11px;color:#aaa;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Offered</div>
-          <div style="font-size:17px;font-weight:700;color:#1a1a1a;">${offered}</div>
+        <td style="padding:10px 6px;border-bottom:1px solid #eee;vertical-align:top;text-align:center;width:40px;">
+          <table cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;"><tr><td style="background:${condColor};color:#fff;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;line-height:16px;">${condition}</td></tr></table>
+        </td>
+        <td style="padding:10px 6px;border-bottom:1px solid #eee;vertical-align:top;text-align:right;width:70px;">
+          <div style="font-size:13px;color:#555;">${marketStr}</div>
+        </td>
+        <td style="padding:10px 6px;border-bottom:1px solid #eee;vertical-align:top;text-align:right;width:70px;">
+          <div style="font-size:13px;font-weight:700;color:#1a1a1a;">${offeredStr}</div>
+        </td>
+        <td style="padding:10px 8px 10px 6px;border-bottom:1px solid #eee;vertical-align:top;text-align:right;width:65px;">
+          <div style="font-size:13px;font-weight:600;color:#16a34a;">${profitStr}</div>
         </td>
       </tr>`;
   }).join('');
 
+  const totalMarket = items.reduce((sum, i) => sum + (parseFloat(i.market_price) || 0), 0);
   const totalOffered = items.reduce((sum, i) => sum + (parseFloat(i.asking_price) || 0), 0);
+  const totalProfit = totalMarket - totalOffered;
 
   const html = `
 <!DOCTYPE html>
@@ -72,28 +78,16 @@ async function sendSubmissionEmail(vendorEmail, submission, items) {
 
         <!-- Header -->
         <tr>
-          <td style="background:#e53e3e;border-radius:16px 16px 0 0;padding:28px;">
+          <td style="background:#444;border-radius:16px 16px 0 0;padding:24px 28px;">
             <table cellpadding="0" cellspacing="0" border="0" width="100%">
               <tr>
                 <td>
-                  <h1 style="margin:0;color:#fff;font-size:22px;font-weight:700;">New Trade-In Submission</h1>
-                  <p style="margin:4px 0 0;color:rgba(255,255,255,0.8);font-size:14px;">TrainerMart Trade</p>
+                  <h1 style="margin:0;color:#fff;font-size:20px;font-weight:700;">New Trade-In Submission</h1>
+                  <p style="margin:4px 0 0;color:rgba(255,255,255,0.6);font-size:13px;">TrainerMart Trade</p>
                 </td>
-              </tr>
-              <tr>
-                <td style="padding-top:16px;">
-                  <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background:rgba(255,255,255,0.15);border-radius:10px;">
-                    <tr>
-                      <td style="padding:14px 16px;">
-                        <div style="font-size:11px;color:rgba(255,255,255,0.6);text-transform:uppercase;letter-spacing:0.5px;">Reference</div>
-                        <div style="font-size:15px;color:#fff;font-weight:600;font-family:monospace;margin-top:2px;">${submission.submission_id}</div>
-                      </td>
-                      <td style="padding:14px 16px;text-align:right;">
-                        <div style="font-size:11px;color:rgba(255,255,255,0.6);text-transform:uppercase;letter-spacing:0.5px;">Cards</div>
-                        <div style="font-size:24px;color:#fff;font-weight:700;margin-top:2px;">${items.length}</div>
-                      </td>
-                    </tr>
-                  </table>
+                <td style="text-align:right;vertical-align:top;">
+                  <div style="font-size:11px;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:0.5px;">Ref</div>
+                  <div style="font-size:13px;color:#fff;font-weight:600;font-family:monospace;margin-top:2px;">${submission.submission_id}</div>
                 </td>
               </tr>
             </table>
@@ -102,51 +96,61 @@ async function sendSubmissionEmail(vendorEmail, submission, items) {
 
         <!-- Seller info -->
         <tr>
-          <td style="background:#fff;padding:24px 28px;border-left:1px solid #e8e8e8;border-right:1px solid #e8e8e8;border-bottom:1px solid #f0f0f0;">
-            <div style="font-size:11px;color:#aaa;text-transform:uppercase;letter-spacing:1px;font-weight:600;margin-bottom:12px;">Seller Details</div>
+          <td style="background:#fff;padding:20px 28px;border-left:1px solid #e0e0e0;border-right:1px solid #e0e0e0;border-bottom:1px solid #eee;">
             <table cellpadding="0" cellspacing="0" border="0">
               <tr>
-                <td style="padding-right:32px;vertical-align:top;">
-                  <div style="font-size:12px;color:#999;margin-bottom:2px;">Name</div>
-                  <div style="font-size:16px;font-weight:600;color:#1a1a1a;">${submission.seller_name}</div>
+                <td style="padding-right:28px;vertical-align:top;">
+                  <div style="font-size:11px;color:#999;margin-bottom:2px;">Name</div>
+                  <div style="font-size:15px;font-weight:600;color:#1a1a1a;">${submission.seller_name}</div>
                 </td>
                 ${submission.seller_email ? `
-                <td style="padding-right:32px;vertical-align:top;">
-                  <div style="font-size:12px;color:#999;margin-bottom:2px;">Email</div>
-                  <div style="font-size:15px;"><a href="mailto:${submission.seller_email}" style="color:#e53e3e;text-decoration:none;">${submission.seller_email}</a></div>
+                <td style="padding-right:28px;vertical-align:top;">
+                  <div style="font-size:11px;color:#999;margin-bottom:2px;">Email</div>
+                  <div style="font-size:14px;"><a href="mailto:${submission.seller_email}" style="color:#333;text-decoration:none;">${submission.seller_email}</a></div>
                 </td>` : ''}
                 ${submission.seller_phone ? `
                 <td style="vertical-align:top;">
-                  <div style="font-size:12px;color:#999;margin-bottom:2px;">Phone</div>
-                  <div style="font-size:15px;"><a href="tel:${submission.seller_phone}" style="color:#e53e3e;text-decoration:none;">${submission.seller_phone}</a></div>
+                  <div style="font-size:11px;color:#999;margin-bottom:2px;">Phone</div>
+                  <div style="font-size:14px;"><a href="tel:${submission.seller_phone}" style="color:#333;text-decoration:none;">${submission.seller_phone}</a></div>
                 </td>` : ''}
               </tr>
             </table>
           </td>
         </tr>
 
-        <!-- Cards -->
+        <!-- Cards table -->
         <tr>
-          <td style="background:#fff;padding:24px 28px 8px;border-left:1px solid #e8e8e8;border-right:1px solid #e8e8e8;">
-            <div style="font-size:11px;color:#aaa;text-transform:uppercase;letter-spacing:1px;font-weight:600;margin-bottom:16px;">Cards Submitted</div>
+          <td style="background:#fff;padding:20px 28px 0;border-left:1px solid #e0e0e0;border-right:1px solid #e0e0e0;">
+            <div style="font-size:11px;color:#aaa;text-transform:uppercase;letter-spacing:1px;font-weight:600;margin-bottom:12px;">${items.length} Card${items.length !== 1 ? 's' : ''} Submitted</div>
             <table cellpadding="0" cellspacing="0" border="0" width="100%">
-              ${itemCards}
+              <tr style="border-bottom:2px solid #ddd;">
+                <th style="padding:6px 8px;text-align:left;font-size:10px;color:#aaa;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;border-bottom:2px solid #ddd;">Card</th>
+                <th style="padding:6px;text-align:center;font-size:10px;color:#aaa;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;border-bottom:2px solid #ddd;">Cond</th>
+                <th style="padding:6px;text-align:right;font-size:10px;color:#aaa;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;border-bottom:2px solid #ddd;">Market</th>
+                <th style="padding:6px;text-align:right;font-size:10px;color:#aaa;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;border-bottom:2px solid #ddd;">Offered</th>
+                <th style="padding:6px 8px 6px 6px;text-align:right;font-size:10px;color:#aaa;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;border-bottom:2px solid #ddd;">Profit</th>
+              </tr>
+              ${itemRows}
             </table>
           </td>
         </tr>
 
-        <!-- Total -->
+        <!-- Totals -->
         <tr>
-          <td style="background:#fff;padding:20px 28px 28px;border-left:1px solid #e8e8e8;border-right:1px solid #e8e8e8;">
-            <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#fafafa;border-radius:12px;">
+          <td style="background:#fff;padding:16px 28px 24px;border-left:1px solid #e0e0e0;border-right:1px solid #e0e0e0;">
+            <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#f7f7f7;border-radius:10px;">
               <tr>
-                <td style="padding:16px 20px;">
-                  <div style="font-size:11px;color:#aaa;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Total Offered</div>
-                  <div style="font-size:24px;font-weight:700;color:#1a1a1a;">£${totalOffered.toFixed(2)}</div>
+                <td style="padding:14px 16px;">
+                  <div style="font-size:10px;color:#aaa;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Market Total</div>
+                  <div style="font-size:18px;color:#555;">£${totalMarket.toFixed(2)}</div>
                 </td>
-                <td style="padding:16px 20px;text-align:right;">
-                  <div style="font-size:11px;color:#aaa;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Items</div>
-                  <div style="font-size:24px;font-weight:700;color:#1a1a1a;">${items.length}</div>
+                <td style="padding:14px 16px;text-align:center;">
+                  <div style="font-size:10px;color:#aaa;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Offered</div>
+                  <div style="font-size:18px;font-weight:700;color:#1a1a1a;">£${totalOffered.toFixed(2)}</div>
+                </td>
+                <td style="padding:14px 16px;text-align:right;">
+                  <div style="font-size:10px;color:#aaa;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Profit</div>
+                  <div style="font-size:18px;font-weight:700;color:#16a34a;">£${totalProfit.toFixed(2)}</div>
                 </td>
               </tr>
             </table>
@@ -155,8 +159,8 @@ async function sendSubmissionEmail(vendorEmail, submission, items) {
 
         <!-- Footer -->
         <tr>
-          <td style="background:#fafafa;border-radius:0 0 16px 16px;padding:16px 28px;border:1px solid #e8e8e8;border-top:none;text-align:center;">
-            <p style="margin:0;color:#bbb;font-size:12px;">TrainerMart Trade &mdash; Automated submission notification</p>
+          <td style="background:#444;border-radius:0 0 16px 16px;padding:14px 28px;text-align:center;">
+            <p style="margin:0;color:rgba(255,255,255,0.5);font-size:11px;">TrainerMart Trade &mdash; Automated submission notification</p>
           </td>
         </tr>
 
