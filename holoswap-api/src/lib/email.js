@@ -32,35 +32,31 @@ async function sendSubmissionEmail(vendorEmail, submission, items) {
   const itemCards = items.map(item => {
     const condition = item.condition || 'NM';
     const condColor = conditionColors[condition] || '#888';
-    const market = item.market_price ? `£${parseFloat(item.market_price).toFixed(2)}` : 'N/A';
-    const asking = item.asking_price ? `£${parseFloat(item.asking_price).toFixed(2)}` : 'N/A';
-    const imgHtml = item.image_url
-      ? `<img src="${item.image_url}" alt="${item.card_name || ''}" style="width:64px;height:90px;object-fit:contain;border-radius:6px;flex-shrink:0;" />`
-      : `<div style="width:64px;height:90px;background:#f0f0f0;border-radius:6px;flex-shrink:0;display:flex;align-items:center;justify-content:center;color:#ccc;font-size:1.5rem;">?</div>`;
+    const offered = item.asking_price ? `£${parseFloat(item.asking_price).toFixed(2)}` : 'N/A';
+    const imgCell = item.image_url
+      ? `<td style="padding:12px 12px 12px 0;border-bottom:1px solid #f0f0f0;width:64px;vertical-align:top;">
+           <img src="${item.image_url}" alt="${item.card_name || ''}" width="64" style="display:block;border-radius:6px;" />
+         </td>`
+      : `<td style="padding:12px 12px 12px 0;border-bottom:1px solid #f0f0f0;width:64px;vertical-align:top;">
+           <div style="width:64px;height:90px;background:#f0f0f0;border-radius:6px;">&nbsp;</div>
+         </td>`;
 
     return `
       <tr>
-        <td style="padding:10px 0;border-bottom:1px solid #f0f0f0;">
-          <div style="display:flex;align-items:center;gap:12px;">
-            ${imgHtml}
-            <div style="flex:1;min-width:0;">
-              <div style="font-weight:700;font-size:0.95rem;color:#1a1a1a;margin-bottom:2px;">${item.card_name || 'Unknown'}</div>
-              <div style="font-size:0.8rem;color:#888;margin-bottom:6px;">${item.set_name || ''} #${item.card_number || ''}</div>
-              <div style="display:inline-block;background:${condColor};color:#fff;font-size:0.7rem;font-weight:700;padding:2px 8px;border-radius:10px;letter-spacing:0.5px;">${condition}</div>
-            </div>
-            <div style="text-align:right;flex-shrink:0;">
-              <div style="font-size:0.7rem;color:#aaa;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px;">Market</div>
-              <div style="font-size:0.9rem;color:#555;margin-bottom:8px;">${market}</div>
-              <div style="font-size:0.7rem;color:#aaa;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px;">Asking</div>
-              <div style="font-size:1.05rem;font-weight:700;color:#1a1a1a;">${asking}</div>
-            </div>
-          </div>
+        ${imgCell}
+        <td style="padding:12px 0;border-bottom:1px solid #f0f0f0;vertical-align:top;">
+          <div style="font-weight:700;font-size:15px;color:#1a1a1a;margin-bottom:2px;">${item.card_name || 'Unknown'}</div>
+          <div style="font-size:13px;color:#888;margin-bottom:6px;">${item.set_name || ''} #${item.card_number || ''}</div>
+          <table cellpadding="0" cellspacing="0" border="0"><tr><td style="background:${condColor};color:#fff;font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;line-height:18px;">${condition}</td></tr></table>
+        </td>
+        <td style="padding:12px 0 12px 8px;border-bottom:1px solid #f0f0f0;vertical-align:top;text-align:right;width:80px;">
+          <div style="font-size:11px;color:#aaa;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Offered</div>
+          <div style="font-size:17px;font-weight:700;color:#1a1a1a;">${offered}</div>
         </td>
       </tr>`;
   }).join('');
 
-  const totalAsking = items.reduce((sum, i) => sum + (parseFloat(i.asking_price) || 0), 0);
-  const totalMarket = items.reduce((sum, i) => sum + (parseFloat(i.market_price) || 0), 0);
+  const totalOffered = items.reduce((sum, i) => sum + (parseFloat(i.asking_price) || 0), 0);
 
   const html = `
 <!DOCTYPE html>
@@ -70,86 +66,103 @@ async function sendSubmissionEmail(vendorEmail, submission, items) {
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 </head>
 <body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;background:#f0f2f5;-webkit-font-smoothing:antialiased;">
-  <div style="max-width:600px;margin:0 auto;padding:16px;">
+  <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#f0f2f5;">
+    <tr><td align="center" style="padding:16px;">
+      <table cellpadding="0" cellspacing="0" border="0" width="600" style="max-width:600px;">
 
-    <!-- Header -->
-    <div style="background:linear-gradient(135deg,#e53e3e 0%,#c53030 100%);border-radius:16px 16px 0 0;padding:28px 28px 24px;">
-      <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
-        <div style="width:40px;height:40px;background:rgba(255,255,255,0.2);border-radius:10px;display:flex;align-items:center;justify-content:center;">
-          <span style="font-size:1.4rem;">&#9878;</span>
-        </div>
-        <div>
-          <h1 style="margin:0;color:#fff;font-size:1.3rem;font-weight:700;">New Trade-In Submission</h1>
-          <p style="margin:2px 0 0;color:rgba(255,255,255,0.8);font-size:0.85rem;">TrainerMart Trade</p>
-        </div>
-      </div>
-      <div style="background:rgba(255,255,255,0.15);border-radius:10px;padding:14px 16px;display:flex;justify-content:space-between;align-items:center;">
-        <div>
-          <div style="font-size:0.7rem;color:rgba(255,255,255,0.6);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px;">Reference</div>
-          <div style="font-size:0.95rem;color:#fff;font-weight:600;font-family:monospace;">${submission.submission_id}</div>
-        </div>
-        <div style="text-align:right;">
-          <div style="font-size:0.7rem;color:rgba(255,255,255,0.6);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px;">Cards</div>
-          <div style="font-size:1.4rem;color:#fff;font-weight:700;">${items.length}</div>
-        </div>
-      </div>
-    </div>
+        <!-- Header -->
+        <tr>
+          <td style="background:#e53e3e;border-radius:16px 16px 0 0;padding:28px;">
+            <table cellpadding="0" cellspacing="0" border="0" width="100%">
+              <tr>
+                <td>
+                  <h1 style="margin:0;color:#fff;font-size:22px;font-weight:700;">New Trade-In Submission</h1>
+                  <p style="margin:4px 0 0;color:rgba(255,255,255,0.8);font-size:14px;">TrainerMart Trade</p>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding-top:16px;">
+                  <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background:rgba(255,255,255,0.15);border-radius:10px;">
+                    <tr>
+                      <td style="padding:14px 16px;">
+                        <div style="font-size:11px;color:rgba(255,255,255,0.6);text-transform:uppercase;letter-spacing:0.5px;">Reference</div>
+                        <div style="font-size:15px;color:#fff;font-weight:600;font-family:monospace;margin-top:2px;">${submission.submission_id}</div>
+                      </td>
+                      <td style="padding:14px 16px;text-align:right;">
+                        <div style="font-size:11px;color:rgba(255,255,255,0.6);text-transform:uppercase;letter-spacing:0.5px;">Cards</div>
+                        <div style="font-size:24px;color:#fff;font-weight:700;margin-top:2px;">${items.length}</div>
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
 
-    <!-- Body -->
-    <div style="background:#fff;padding:0 28px;border-left:1px solid #e8e8e8;border-right:1px solid #e8e8e8;">
+        <!-- Seller info -->
+        <tr>
+          <td style="background:#fff;padding:24px 28px;border-left:1px solid #e8e8e8;border-right:1px solid #e8e8e8;border-bottom:1px solid #f0f0f0;">
+            <div style="font-size:11px;color:#aaa;text-transform:uppercase;letter-spacing:1px;font-weight:600;margin-bottom:12px;">Seller Details</div>
+            <table cellpadding="0" cellspacing="0" border="0">
+              <tr>
+                <td style="padding-right:32px;vertical-align:top;">
+                  <div style="font-size:12px;color:#999;margin-bottom:2px;">Name</div>
+                  <div style="font-size:16px;font-weight:600;color:#1a1a1a;">${submission.seller_name}</div>
+                </td>
+                ${submission.seller_email ? `
+                <td style="padding-right:32px;vertical-align:top;">
+                  <div style="font-size:12px;color:#999;margin-bottom:2px;">Email</div>
+                  <div style="font-size:15px;"><a href="mailto:${submission.seller_email}" style="color:#e53e3e;text-decoration:none;">${submission.seller_email}</a></div>
+                </td>` : ''}
+                ${submission.seller_phone ? `
+                <td style="vertical-align:top;">
+                  <div style="font-size:12px;color:#999;margin-bottom:2px;">Phone</div>
+                  <div style="font-size:15px;"><a href="tel:${submission.seller_phone}" style="color:#e53e3e;text-decoration:none;">${submission.seller_phone}</a></div>
+                </td>` : ''}
+              </tr>
+            </table>
+          </td>
+        </tr>
 
-      <!-- Seller info -->
-      <div style="padding:24px 0;border-bottom:1px solid #f0f0f0;">
-        <div style="font-size:0.7rem;color:#aaa;text-transform:uppercase;letter-spacing:1px;font-weight:600;margin-bottom:12px;">Seller Details</div>
-        <div style="display:flex;gap:24px;flex-wrap:wrap;">
-          <div>
-            <div style="font-size:0.75rem;color:#999;margin-bottom:2px;">Name</div>
-            <div style="font-size:1rem;font-weight:600;color:#1a1a1a;">${submission.seller_name}</div>
-          </div>
-          ${submission.seller_email ? `
-          <div>
-            <div style="font-size:0.75rem;color:#999;margin-bottom:2px;">Email</div>
-            <div style="font-size:0.95rem;color:#1a1a1a;"><a href="mailto:${submission.seller_email}" style="color:#e53e3e;text-decoration:none;">${submission.seller_email}</a></div>
-          </div>` : ''}
-          ${submission.seller_phone ? `
-          <div>
-            <div style="font-size:0.75rem;color:#999;margin-bottom:2px;">Phone</div>
-            <div style="font-size:0.95rem;color:#1a1a1a;"><a href="tel:${submission.seller_phone}" style="color:#e53e3e;text-decoration:none;">${submission.seller_phone}</a></div>
-          </div>` : ''}
-        </div>
-      </div>
+        <!-- Cards -->
+        <tr>
+          <td style="background:#fff;padding:24px 28px 8px;border-left:1px solid #e8e8e8;border-right:1px solid #e8e8e8;">
+            <div style="font-size:11px;color:#aaa;text-transform:uppercase;letter-spacing:1px;font-weight:600;margin-bottom:16px;">Cards Submitted</div>
+            <table cellpadding="0" cellspacing="0" border="0" width="100%">
+              ${itemCards}
+            </table>
+          </td>
+        </tr>
 
-      <!-- Cards -->
-      <div style="padding:24px 0 8px;">
-        <div style="font-size:0.7rem;color:#aaa;text-transform:uppercase;letter-spacing:1px;font-weight:600;margin-bottom:16px;">Cards Submitted</div>
-        <table style="width:100%;border-collapse:collapse;">
-          <tbody>
-            ${itemCards}
-          </tbody>
-        </table>
-      </div>
+        <!-- Total -->
+        <tr>
+          <td style="background:#fff;padding:20px 28px 28px;border-left:1px solid #e8e8e8;border-right:1px solid #e8e8e8;">
+            <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#fafafa;border-radius:12px;">
+              <tr>
+                <td style="padding:16px 20px;">
+                  <div style="font-size:11px;color:#aaa;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Total Offered</div>
+                  <div style="font-size:24px;font-weight:700;color:#1a1a1a;">£${totalOffered.toFixed(2)}</div>
+                </td>
+                <td style="padding:16px 20px;text-align:right;">
+                  <div style="font-size:11px;color:#aaa;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Items</div>
+                  <div style="font-size:24px;font-weight:700;color:#1a1a1a;">${items.length}</div>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
 
-      <!-- Totals -->
-      <div style="padding:20px 0 28px;">
-        <div style="background:#fafafa;border-radius:12px;padding:16px 20px;display:flex;justify-content:space-between;align-items:center;">
-          <div>
-            <div style="font-size:0.7rem;color:#aaa;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Total Market Value</div>
-            <div style="font-size:1.1rem;color:#555;">£${totalMarket.toFixed(2)}</div>
-          </div>
-          <div style="text-align:right;">
-            <div style="font-size:0.7rem;color:#aaa;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Total Asking</div>
-            <div style="font-size:1.4rem;font-weight:700;color:#1a1a1a;">£${totalAsking.toFixed(2)}</div>
-          </div>
-        </div>
-      </div>
-    </div>
+        <!-- Footer -->
+        <tr>
+          <td style="background:#fafafa;border-radius:0 0 16px 16px;padding:16px 28px;border:1px solid #e8e8e8;border-top:none;text-align:center;">
+            <p style="margin:0;color:#bbb;font-size:12px;">TrainerMart Trade &mdash; Automated submission notification</p>
+          </td>
+        </tr>
 
-    <!-- Footer -->
-    <div style="background:#fafafa;border-radius:0 0 16px 16px;padding:16px 28px;border:1px solid #e8e8e8;border-top:none;text-align:center;">
-      <p style="margin:0;color:#bbb;font-size:0.75rem;">TrainerMart Trade &mdash; Automated submission notification</p>
-    </div>
-
-  </div>
+      </table>
+    </td></tr>
+  </table>
 </body>
 </html>`;
 
