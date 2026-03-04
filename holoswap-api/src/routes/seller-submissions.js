@@ -811,6 +811,31 @@ router.put('/submissions/:id/status', auth, async (req, res) => {
   }
 });
 
+// DELETE /api/seller/submissions/:id — delete a submission and its items (admin only)
+router.delete('/submissions/:id', auth, async (req, res) => {
+  try {
+    const userResult = await pool.query('SELECT is_admin FROM users WHERE id = $1', [req.user.id]);
+    if (!userResult.rows[0]?.is_admin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const result = await pool.query(
+      'DELETE FROM seller_submissions WHERE submission_id = $1 RETURNING submission_id',
+      [req.params.id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Submission not found' });
+    }
+
+    console.log(`[Seller] Submission deleted: ${req.params.id}`);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[Seller] Delete submission error:', err);
+    res.status(500).json({ error: 'Failed to delete submission' });
+  }
+});
+
 // PUT /api/seller/items/:itemId — update individual item (offer_price, status, notes)
 router.put('/items/:itemId', auth, async (req, res) => {
   try {
