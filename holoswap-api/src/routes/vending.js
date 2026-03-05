@@ -34,12 +34,16 @@ async function requireVendorOrAdmin(req, res, next) {
 // paramStart = the next available $N in the query, alias = optional table alias (e.g. 'vl')
 function vendorFilter(req, paramStart, alias) {
   const col = alias ? `${alias}.vendor_id` : 'vendor_id';
-  if (req.isAdmin) return { clause: `AND ${col} IS NULL`, params: [], nextParam: paramStart };
-  return {
-    clause: `AND ${col} = $${paramStart}`,
-    params: [req.user.id],
-    nextParam: paramStart + 1,
-  };
+  // Vendor filter takes priority — if user is both admin AND vendor, show their vendor items
+  if (req.isVendor) {
+    return {
+      clause: `AND ${col} = $${paramStart}`,
+      params: [req.user.id],
+      nextParam: paramStart + 1,
+    };
+  }
+  // Pure admin (no vendor role) sees untagged lookups
+  return { clause: `AND ${col} IS NULL`, params: [], nextParam: paramStart };
 }
 
 // IP-based rate limiting for public endpoint
