@@ -38,6 +38,7 @@ async function sendSubmissionEmail(vendorEmail, submission, items) {
     const marketStr = market ? `£${market.toFixed(2)}` : 'N/A';
     const offeredStr = offered ? `£${offered.toFixed(2)}` : 'N/A';
     const profitStr = (market && offered) ? `£${profit.toFixed(2)}` : '-';
+    const profitColor = profit >= 0 ? '#16a34a' : '#dc2626';
 
     return `
       <tr>
@@ -55,7 +56,7 @@ async function sendSubmissionEmail(vendorEmail, submission, items) {
           <div style="font-size:13px;font-weight:700;color:#1a1a1a;">${offeredStr}</div>
         </td>
         <td style="padding:10px 8px 10px 6px;border-bottom:1px solid #eee;vertical-align:top;text-align:right;width:65px;">
-          <div style="font-size:13px;font-weight:600;color:#16a34a;">${profitStr}</div>
+          <div style="font-size:13px;font-weight:600;color:${profitColor};">${profitStr}</div>
         </td>
       </tr>`;
   }).join('');
@@ -150,7 +151,7 @@ async function sendSubmissionEmail(vendorEmail, submission, items) {
                 </td>
                 <td style="padding:14px 16px;text-align:right;">
                   <div style="font-size:10px;color:#aaa;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Profit</div>
-                  <div style="font-size:18px;font-weight:700;color:#16a34a;">£${totalProfit.toFixed(2)}</div>
+                  <div style="font-size:18px;font-weight:700;color:${totalProfit >= 0 ? '#16a34a' : '#dc2626'};">£${totalProfit.toFixed(2)}</div>
                 </td>
               </tr>
             </table>

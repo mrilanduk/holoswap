@@ -15,6 +15,23 @@ const { sendSubmissionDiscord, sendTestDiscord } = require('../lib/discord');
 const router = Router();
 
 // ──────────────────────────────────────────────────────────────
+// Pricing helpers (must match frontend floorPence + multipliers)
+// ──────────────────────────────────────────────────────────────
+
+const DEFAULT_BUY = { NM: 0.7, LP: 0.6, MP: 0.5, HP: 0.4 };
+
+function floorPence(n) {
+  return Math.floor(n * 100) / 100;
+}
+
+function serverBuyPrice(marketPrice, condition, vendorMultipliers) {
+  const base = parseFloat(marketPrice);
+  if (!base || base <= 0) return null;
+  const m = { ...DEFAULT_BUY, ...vendorMultipliers };
+  return floorPence(base * (m[condition] || 0.7));
+}
+
+// ──────────────────────────────────────────────────────────────
 // Card Lookup Helpers (shared logic from vending)
 // ──────────────────────────────────────────────────────────────
 
@@ -445,14 +462,30 @@ router.post('/submit', async (req, res) => {
       return res.status(400).json({ error: 'Maximum 100 items per submission' });
     }
 
-    // Resolve vendor
+    // Resolve vendor and fetch multipliers
     let vendorId = null;
+    let vendorMultipliers = {};
     if (vendor_code) {
       const vr = await pool.query(
-        'SELECT id FROM users WHERE UPPER(vendor_code) = UPPER($1) AND is_vendor = true',
+        'SELECT id, vendor_buy_nm, vendor_buy_lp, vendor_buy_mp, vendor_buy_hp FROM users WHERE UPPER(vendor_code) = UPPER($1) AND is_vendor = true',
         [vendor_code]
       );
-      if (vr.rows.length > 0) vendorId = vr.rows[0].id;
+      if (vr.rows.length > 0) {
+        vendorId = vr.rows[0].id;
+        const v = vr.rows[0];
+        if (v.vendor_buy_nm) vendorMultipliers.NM = parseFloat(v.vendor_buy_nm);
+        if (v.vendor_buy_lp) vendorMultipliers.LP = parseFloat(v.vendor_buy_lp);
+        if (v.vendor_buy_mp) vendorMultipliers.MP = parseFloat(v.vendor_buy_mp);
+        if (v.vendor_buy_hp) vendorMultipliers.HP = parseFloat(v.vendor_buy_hp);
+      }
+    }
+
+    // Recalculate asking prices server-side to prevent manipulation
+    for (const item of items) {
+      if (item.market_price) {
+        const condition = item.condition || 'NM';
+        item.asking_price = serverBuyPrice(item.market_price, condition, vendorMultipliers);
+      }
     }
 
     // Generate unique submission ID
