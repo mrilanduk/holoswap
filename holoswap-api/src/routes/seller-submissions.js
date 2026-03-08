@@ -425,10 +425,19 @@ router.post('/lookup-card', async (req, res) => {
       return res.status(400).json({ error: 'Card name and set_id required' });
     }
 
-    const card = await pool.query(
-      'SELECT * FROM card_index WHERE set_id = $1 AND name = $2 LIMIT 1',
-      [set_id, name]
-    );
+    let card;
+    if (local_id) {
+      card = await pool.query(
+        'SELECT * FROM card_index WHERE set_id = $1 AND name = $2 AND local_id = $3 LIMIT 1',
+        [set_id, name, local_id]
+      );
+    }
+    if (!card || card.rows.length === 0) {
+      card = await pool.query(
+        'SELECT * FROM card_index WHERE set_id = $1 AND name = $2 LIMIT 1',
+        [set_id, name]
+      );
+    }
 
     if (card.rows.length === 0) {
       return res.status(404).json({ error: 'Card not found' });
