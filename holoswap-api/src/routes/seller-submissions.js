@@ -168,11 +168,13 @@ async function getCardPricing(setId, cardNumber, cardName) {
     [setId]
   );
   const pokePulseSetId = ppRow.rows[0]?.pokepulse_set_id || convertSetIdToPokePulse(setId);
+  console.log(`[Seller] setId: ${setId} → pokepulse: ${pokePulseSetId}, card: ${cardName} #${cardNumber}`);
 
   let matchingCards = [];
   const cachedProducts = await findCachedProducts(pokePulseSetId, cardNumber);
   if (cachedProducts.length > 0) {
     matchingCards = cachedProducts;
+    console.log(`[Seller] DB cache hit → ${matchingCards.length} variant(s)`);
   }
 
   if (matchingCards.length === 0) {
@@ -186,28 +188,41 @@ async function getCardPricing(setId, cardNumber, cardName) {
       let catalogueData = getCached(catalogueCache, catalogueCacheKey, CATALOGUE_TTL);
       if (!catalogueData) {
         checkRateLimit();
+        console.log(`[Seller] Catalogue search: setId=${trySetId || 'NONE'}, cardName=${cardName}`);
         catalogueData = await searchCatalogue(trySetId, cardName);
         setCache(catalogueCache, catalogueCacheKey, catalogueData);
+      } else {
+        console.log(`[Seller] Catalogue cache hit: ${catalogueCacheKey}`);
       }
       cardsArray = extractCardsArray(catalogueData);
+      console.log(`[Seller] setId=${trySetId || 'NONE'} → ${cardsArray ? cardsArray.length : 0} cards`);
       if (cardsArray && cardsArray.length > 0) {
         cacheCatalogueResults(trySetId, cardsArray).catch(() => {});
         break;
       }
     }
-    if (!cardsArray || cardsArray.length === 0) return null;
+    if (!cardsArray || cardsArray.length === 0) {
+      console.log(`[Seller] No catalogue results for ${cardName} in any set`);
+      return null;
+    }
     matchingCards = findMatchingCards(cardsArray, cardNumber);
-    if (matchingCards.length === 0) return null;
+    if (matchingCards.length === 0) {
+      console.log(`[Seller] No card number match for #${cardNumber} among ${cardsArray.length} results`);
+      return null;
+    }
   }
 
   const productIds = matchingCards.map(c => c.product_id);
+  console.log(`[Seller] Product IDs: ${productIds.join(', ')}`);
   const marketCacheKey = `market:${productIds.join(',')}`;
   let marketData = getCached(marketDataCache, marketCacheKey, MARKET_DATA_TTL);
   let cached = true;
 
   if (!marketData) {
     checkRateLimit();
+    console.log(`[Seller] Fetching market data for ${productIds.length} variant(s)`);
     marketData = await getMarketData(productIds);
+    console.log(`[Seller] Market data response:`, JSON.stringify(marketData).substring(0, 500));
     setCache(marketDataCache, marketCacheKey, marketData);
     cached = false;
   }
@@ -215,6 +230,7 @@ async function getCardPricing(setId, cardNumber, cardName) {
   const variants = [];
   for (const card of matchingCards) {
     const pricingRecords = extractPricingRecords(marketData, card.product_id);
+    console.log(`[Seller] Product ${card.product_id}: ${pricingRecords ? pricingRecords.length : 0} pricing records`);
     if (!pricingRecords || pricingRecords.length === 0) continue;
     const pricing = formatPricingData(pricingRecords, card.product_id, cached);
     variants.push({
@@ -227,7 +243,10 @@ async function getCardPricing(setId, cardNumber, cardName) {
     });
   }
 
-  if (variants.length === 0) return null;
+  if (variants.length === 0) {
+    console.log(`[Seller] No pricing variants found`);
+    return null;
+  }
   const first = variants[0];
   return {
     marketPrice: first.market_price,
