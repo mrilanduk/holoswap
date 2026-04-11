@@ -65,7 +65,7 @@ const POKEPULSE_SET_OVERRIDES = {
   // SM era
   'sm35': 'sm3pt5',      // Shining Legends (TCGDex uses sm35 not sm3.5)
   // Base sets
-  'base1': 'bsu',        // Base Set (PokePulse uses bsu for unlimited)
+  'base1': 'bs',         // Base Set
   'base5': 'tr',         // Team Rocket (PokePulse base5 = different set)
   // McDonald's
   '2021swsh': 'mcd21',   // McDonald's Collection 2021
