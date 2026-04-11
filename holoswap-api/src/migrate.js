@@ -414,7 +414,7 @@ const migrate = async () => {
     UPDATE card_index SET pokepulse_set_id = 'cel25' WHERE set_id = 'swsh7.5' AND pokepulse_set_id != 'cel25';
     UPDATE card_index SET pokepulse_set_id = 'pgo' WHERE set_id = 'swsh10.5' AND pokepulse_set_id != 'pgo';
     UPDATE card_index SET pokepulse_set_id = 'sm3pt5' WHERE set_id = 'sm35' AND pokepulse_set_id != 'sm3pt5';
-    UPDATE card_index SET pokepulse_set_id = 'bsu' WHERE set_id = 'base1' AND pokepulse_set_id != 'bsu';
+    UPDATE card_index SET pokepulse_set_id = 'bs' WHERE set_id = 'base1' AND pokepulse_set_id != 'bs';
     UPDATE card_index SET pokepulse_set_id = 'tr' WHERE set_id = 'base5' AND pokepulse_set_id != 'tr';
   `);
   if (overrideFix.rowCount > 0) {
