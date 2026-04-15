@@ -5,7 +5,7 @@ const {
   catalogueCache, marketDataCache, CATALOGUE_TTL, MARKET_DATA_TTL,
   getCached, setCache, checkRateLimit,
   convertSetIdToPokePulse, searchCatalogue, getMarketData,
-  findMatchingCard, extractCardsArray, extractPricingRecords, formatPricingData
+  findMatchingCards, extractCardsArray, extractPricingRecords, formatPricingData
 } = require('../lib/pricing');
 
 const router = Router();
@@ -47,13 +47,14 @@ router.get('/check', auth, async (req, res) => {
 
     console.log(`Catalogue returned ${cardsArray.length} cards for "${name}" in set ${pokePulseSetId}`);
 
-    const matchingCard = findMatchingCard(cardsArray, number);
-    if (!matchingCard) {
+    const matchingCards = findMatchingCards(cardsArray, number);
+    if (!matchingCards || matchingCards.length === 0) {
       return res.json({ success: true, data: null, message: 'No pricing data found for this card' });
     }
 
+    const matchingCard = matchingCards[0];
     const productId = matchingCard.product_id;
-    console.log(`Found product_id: ${productId}`);
+    console.log(`Found ${matchingCards.length} variant(s); using product_id: ${productId}`);
 
     // Check market data cache
     const marketCacheKey = `market:${productId}`;
