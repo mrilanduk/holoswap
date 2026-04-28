@@ -14,6 +14,8 @@
 
 require('dotenv').config();
 const { Pool } = require('pg');
+const path = require('path');
+const { spawnSync } = require('child_process');
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -194,6 +196,23 @@ async function run() {
   console.log(`   Errors: ${errors}`);
 
   await pool.end();
+
+  if (process.argv.includes('--skip-images')) {
+    return;
+  }
+
+  console.log('\n🔄 Bulk-importing PokePulse catalogue (fills images for sets tcgdex lacks)...');
+  const ppResult = spawnSync('node', [path.join(__dirname, 'import-pokepulse.js'), '--bulk'], { stdio: 'inherit' });
+  if (ppResult.status !== 0) {
+    console.error('❌ PokePulse bulk import failed (exit code ' + ppResult.status + '). Skipping image backfill.');
+    return;
+  }
+
+  console.log('\n🔄 Running migrate.js to backfill card_index image_url from PokePulse...');
+  const migrateResult = spawnSync('node', [path.join(__dirname, 'migrate.js')], { stdio: 'inherit' });
+  if (migrateResult.status !== 0) {
+    console.error('❌ migrate.js failed (exit code ' + migrateResult.status + ').');
+  }
 }
 
 run().catch(err => {
