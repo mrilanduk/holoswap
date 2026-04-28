@@ -378,8 +378,8 @@ async function findCachedProducts(pokePulseSetId, cardNumber) {
       console.log(`[PP Cache] HIT: ${pokePulseSetId} #${cardNumber} → ${result.rows.length} variant(s)`);
       return result.rows;
     }
-    // Try with card_number starting with the number (e.g., "89" matches "89/123") or
-    // by comparing the first numeric segment so '31' matches 'MEP031', '031/094', etc.
+    // Match by either the slash form ('4' → '4/102', not '40/102') or by comparing
+    // the first numeric segment so '31' matches 'MEP031', '031/094', etc.
     const numericInput = parseInt(cardNumber.replace(/^\D*/, ''), 10);
     const fuzzy = await pool.query(
       `SELECT DISTINCT ON (COALESCE(material, ''), split_part(product_id, '|', 4))
@@ -397,7 +397,7 @@ async function findCachedProducts(pokePulseSetId, cardNumber) {
            )
          )
        ORDER BY COALESCE(material, ''), split_part(product_id, '|', 4), product_id`,
-      [pokePulseSetId, cardNumber + '%', isNaN(numericInput) ? null : numericInput]
+      [pokePulseSetId, cardNumber + '/%', isNaN(numericInput) ? null : numericInput]
     );
     if (fuzzy.rows.length > 0) {
       console.log(`[PP Cache] FUZZY HIT: ${pokePulseSetId} #${cardNumber} → ${fuzzy.rows.length} variant(s)`);
