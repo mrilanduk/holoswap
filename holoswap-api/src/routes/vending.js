@@ -10,6 +10,8 @@ const {
   analyzeBuyRecommendation, savePriceHistory,
   findCachedProducts, cacheCatalogueResults, getCatalogueStats,
 } = require('../lib/pricing');
+const { SET_CODE_MAP } = require('../lib/set-codes');
+const { parseCardInput } = require('../lib/card-input');
 
 const router = Router();
 
@@ -125,112 +127,6 @@ router.get('/access-check', (req, res) => {
   res.json({ password_required: !!process.env.PRICE_CHECKER_PASSWORD });
 });
 
-// Printed set code → TCGDex set_id mapping
-const SET_CODE_MAP = {
-  // Scarlet & Violet era
-  'SVI': 'sv01', 'PAL': 'sv02', 'OBF': 'sv03', 'MEW': 'sv03.5',
-  'PAR': 'sv04', 'PAF': 'sv04.5', 'TEF': 'sv05', 'TWM': 'sv06',
-  'SFA': 'sv06.5', 'SCR': 'sv07', 'SSP': 'sv08', 'PRE': 'sv08.5',
-  'JTG': 'sv09', 'DRI': 'sv10', 'BLK': 'sv10.5b', 'WHT': 'sv10.5w', 'SVP': 'svp', 'SVE': 'sve',
-  // Pokemon TCG Pocket
-  'A1': 'A1', 'A1A': 'A1a', 'A2': 'A2', 'A2A': 'A2a', 'A3': 'A3',
-  'P-A': 'P-A',
-  // Mega evolution sets
-  'MEG': 'me01', 'PFL': 'me02', 'MEP': 'mep',
-  // Sword & Shield era
-  'SSH': 'swsh1', 'RCL': 'swsh2', 'DAA': 'swsh3', 'CPA': 'swsh3.5', 'VIV': 'swsh4',
-  'SHF': 'swsh4.5', 'BST': 'swsh5', 'CRE': 'swsh6', 'EVS': 'swsh7', 'CEL': 'swsh7.5',
-  'FST': 'swsh8', 'BRS': 'swsh9', 'ASR': 'swsh10', 'PGO': 'swsh10.5',
-  'LOR': 'swsh11', 'SIT': 'swsh12', 'CRZ': 'swsh12.5',
-  // Sun & Moon era
-  'SUM': 'sm1', 'GRI': 'sm2', 'BUS': 'sm3', 'SLG': 'sm35',
-  'CIN': 'sm4', 'UPR': 'sm5', 'FLI': 'sm6', 'CES': 'sm7',
-  'LOT': 'sm8', 'TEU': 'sm9', 'UNB': 'sm10', 'UNM': 'sm11',
-  'CEC': 'sm12',
-  // XY era
-  'XY': 'xy1', 'FLF': 'xy2', 'FFI': 'xy3', 'PHF': 'xy4',
-  'PRC': 'xy5', 'ROS': 'xy6', 'AOR': 'xy7', 'BKT': 'xy8',
-  'BKP': 'xy9', 'FCO': 'xy10', 'STS': 'xy11', 'EVO': 'xy12',
-  // Base sets
-  'BS': 'base1', 'JU': 'base2', 'FO': 'base3', 'BS2': 'base4',
-  'TR': 'base5', 'GY': 'base6',
-};
-
-// Parse customer input
-function parseCardInput(input) {
-  const trimmed = input.trim();
-
-  // Pattern: "SV107/SV122" or "SV 107/SV 122" — same letter prefix on both sides = prefixed card number
-  const prefixedWithTotal = trimmed.match(/^([A-Za-z]+)\s*(\d+)\s*\/\s*([A-Za-z]+)\s*(\d+)$/);
-  if (prefixedWithTotal && prefixedWithTotal[1].toUpperCase() === prefixedWithTotal[3].toUpperCase()) {
-    const prefix = prefixedWithTotal[1].toUpperCase();
-    return {
-      type: 'prefixed_number',
-      cardNumber: prefix + prefixedWithTotal[2],
-      total: prefix + prefixedWithTotal[4],
-    };
-  }
-
-  // Pattern: "MEG 089/123" or "SVI 199/258" or "SHF SV107/SV122" or "SHF SV 107/SV 122"
-  const setNumberTotal = trimmed.match(/^([A-Za-z0-9._-]+)\s+([A-Za-z]*)\s*(\d+)\s*\/\s*[A-Za-z]*\s*(\d+)$/);
-  if (setNumberTotal) {
-    const prefix = setNumberTotal[2];
-    const num = setNumberTotal[3];
-    return {
-      type: 'set_number',
-      setCode: setNumberTotal[1].toUpperCase(),
-      cardNumber: (prefix + num).replace(/^0+/, '') || '0',
-    };
-  }
-
-  // Pattern: "MEG 089" or "SHF SV107" or "SHF SV 107"
-  const setNum = trimmed.match(/^([A-Za-z0-9._-]+)\s+([A-Za-z]*)\s*(\d+)$/);
-  if (setNum) {
-    const prefix = setNum[2];
-    const num = setNum[3];
-    return {
-      type: 'set_number',
-      setCode: setNum[1].toUpperCase(),
-      cardNumber: (prefix + num).replace(/^0+/, '') || '0',
-    };
-  }
-
-  // Pattern: "089/123" (number only)
-  const numOnly = trimmed.match(/^(\d+)\s*\/\s*(\d+)$/);
-  if (numOnly) {
-    return {
-      type: 'number_only',
-      cardNumber: numOnly[1].replace(/^0+/, '') || '0',
-      total: numOnly[2],
-    };
-  }
-
-  // Pattern: "MEP031" / "SVI199" (set code + number, no space) OR "SV107" / "TG15" (prefixed card number)
-  const prefixedNum = trimmed.match(/^([A-Za-z]+)\s*(\d+)$/);
-  if (prefixedNum) {
-    const prefix = prefixedNum[1].toUpperCase();
-    const num = prefixedNum[2];
-    // If the prefix is a known set code, treat as "<SET> <NUMBER>"; otherwise treat
-    // the whole thing as a card-internal prefixed number (SV107, TG15, RC28, etc.)
-    if (SET_CODE_MAP[prefix]) {
-      return {
-        type: 'set_number',
-        setCode: prefix,
-        cardNumber: num.replace(/^0+/, '') || '0',
-      };
-    }
-    return {
-      type: 'prefixed_number',
-      cardNumber: prefix + num,
-    };
-  }
-
-  // Fallback: name search
-  return {
-    type: 'name_search',
-    query: trimmed,
-  };
-}
 
 // Resolve set code to TCGDex set_id
 async function resolveSetCode(setCode) {
