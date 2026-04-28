@@ -18,10 +18,15 @@ const pool = require('./db');
        ORDER BY ci.local_id
        LIMIT 5`
     );
+    const pp = await pool.query(
+      "SELECT card_number, card_name, image_url FROM pokepulse_catalogue WHERE set_id = 'mep' ORDER BY card_number LIMIT 5"
+    );
     console.log('card_index mep rows missing image:', a.rows[0].n);
     console.log('pokepulse_catalogue mep rows with image:', b.rows[0].n);
     console.log('join sample:');
     console.log(JSON.stringify(c.rows, null, 2));
+    console.log('pokepulse_catalogue mep raw:');
+    console.log(JSON.stringify(pp.rows, null, 2));
   } catch (e) {
     console.error('ERROR:', e.message);
   } finally {
