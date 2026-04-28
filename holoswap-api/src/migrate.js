@@ -419,6 +419,9 @@ const migrate = async () => {
     UPDATE card_index SET pokepulse_set_id = 'sm3pt5' WHERE set_id = 'sm35' AND pokepulse_set_id != 'sm3pt5';
     UPDATE card_index SET pokepulse_set_id = 'bsu' WHERE set_id = 'base1' AND pokepulse_set_id != 'bsu';
     UPDATE card_index SET pokepulse_set_id = 'tr' WHERE set_id = 'base5' AND pokepulse_set_id != 'tr';
+    -- Radiant Collection subsets are split into their own set on PokePulse
+    UPDATE card_index SET pokepulse_set_id = 'gen' WHERE set_id = 'g1' AND local_id LIKE 'RC%' AND pokepulse_set_id != 'gen';
+    UPDATE card_index SET pokepulse_set_id = 'ltr' WHERE set_id = 'bw11' AND local_id LIKE 'RC%' AND pokepulse_set_id != 'ltr';
   `);
   if (overrideFix.rowCount > 0) {
     console.log(`\n🔄 Fixed pokepulse_set_id overrides for ${overrideFix.rowCount} rows`);
