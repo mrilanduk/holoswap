@@ -408,7 +408,7 @@ const migrate = async () => {
   const overrideFix = await pool.query(`
     UPDATE card_index SET pokepulse_set_id = 'm1' WHERE set_id = 'me01' AND pokepulse_set_id != 'm1';
     UPDATE card_index SET pokepulse_set_id = 'me02' WHERE set_id = 'me02' AND pokepulse_set_id != 'me02';
-    UPDATE card_index SET pokepulse_set_id = 'mep' WHERE set_id = 'MEP' AND pokepulse_set_id != 'mep';
+    UPDATE card_index SET pokepulse_set_id = 'mep' WHERE set_id IN ('MEP', 'mep') AND pokepulse_set_id != 'mep';
     UPDATE card_index SET pokepulse_set_id = 'rsv10pt5' WHERE set_id = 'sv10.5w' AND pokepulse_set_id != 'rsv10pt5';
     UPDATE card_index SET pokepulse_set_id = 'zsv10pt5' WHERE set_id = 'sv10.5b' AND pokepulse_set_id != 'zsv10pt5';
     UPDATE card_index SET pokepulse_set_id = 'cel25' WHERE set_id = 'swsh7.5' AND pokepulse_set_id != 'cel25';
@@ -419,6 +419,20 @@ const migrate = async () => {
   `);
   if (overrideFix.rowCount > 0) {
     console.log(`\n🔄 Fixed pokepulse_set_id overrides for ${overrideFix.rowCount} rows`);
+  }
+
+  // Backfill missing card_index.image_url from pokepulse_catalogue (for sets tcgdex doesn't host images for, e.g. mep)
+  const imageBackfill = await pool.query(`
+    UPDATE card_index ci
+    SET image_url = pp.image_url
+    FROM pokepulse_catalogue pp
+    WHERE ci.image_url IS NULL
+      AND ci.pokepulse_set_id = pp.set_id
+      AND ci.local_id = pp.card_number
+      AND pp.image_url IS NOT NULL
+  `);
+  if (imageBackfill.rowCount > 0) {
+    console.log(`\n🖼️  Backfilled image_url on ${imageBackfill.rowCount} card_index rows from pokepulse_catalogue`);
   }
 
   console.log('✅ Tables created:');
