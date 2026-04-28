@@ -197,17 +197,17 @@ function formatPricingData(pricingRecords, productId, cached) {
   let lastSoldPrice = null;
   let lastSoldDate = null;
 
+  const conditionMap = {
+    'NM': 'Near Mint',
+    'LP': 'Lightly Played',
+    'MP': 'Moderately Played',
+    'HP': 'Heavily Played',
+    'DMG': 'Damaged'
+  };
+
   pricingRecords.forEach(record => {
     const condition = record.condition?.toUpperCase() || 'UNKNOWN';
     const value = parseFloat(record.value) || 0;
-
-    const conditionMap = {
-      'NM': 'Near Mint',
-      'LP': 'Lightly Played',
-      'MP': 'Moderately Played',
-      'HP': 'Heavily Played',
-      'DMG': 'Damaged'
-    };
 
     const displayCondition = conditionMap[condition] || condition;
 
@@ -216,6 +216,20 @@ function formatPricingData(pricingRecords, productId, cached) {
       market: value,
       high: value * 1.1
     };
+
+    // PokePulse sometimes embeds per-condition pricing in a nested conditionPricing
+    // map alongside the headline NM record. Fold those in so LP/MP/HP/DMG show up
+    // even when there's only one top-level record.
+    if (record.conditionPricing && typeof record.conditionPricing === 'object') {
+      for (const [code, data] of Object.entries(record.conditionPricing)) {
+        const upper = code.toUpperCase();
+        const display = conditionMap[upper] || upper;
+        const v = parseFloat(data?.value) || 0;
+        if (v > 0 && !conditions[display]) {
+          conditions[display] = { low: v * 0.9, market: v, high: v * 1.1 };
+        }
+      }
+    }
 
     if (condition === 'NM') {
       marketPrice = value;
