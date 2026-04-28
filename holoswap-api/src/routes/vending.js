@@ -371,19 +371,27 @@ async function getCardPricing(setId, cardNumber, cardName) {
     if (matchingCards.length === 0) return null;
   }
 
-  // Step 3: Get market data for ALL variants in one batched call
+  // Step 3: Get market data for each variant. Partner API keys are limited to one product
+  // per request, so fetch sequentially and merge into a single { data: { [pid]: [...] } } shape.
   const productIds = matchingCards.map(c => c.product_id);
   const marketCacheKey = `market:${productIds.join(',')}`;
   let marketData = getCached(marketDataCache, marketCacheKey, MARKET_DATA_TTL);
   let cached = true;
 
   if (!marketData) {
-    checkRateLimit();
-    console.log(`[Vending] Market data fetch for ${productIds.length} variant(s)`);
-    marketData = await getMarketData(productIds);
-    console.log(`[Vending] Market data response:`, JSON.stringify(marketData).substring(0, 500));
-    setCache(marketDataCache, marketCacheKey, marketData);
     cached = false;
+    marketData = { data: {} };
+    for (const pid of productIds) {
+      checkRateLimit();
+      try {
+        const single = await getMarketData(pid);
+        if (single?.data) Object.assign(marketData.data, single.data);
+      } catch (err) {
+        console.error(`[Vending] Market data fetch failed for ${pid}:`, err.message);
+      }
+    }
+    console.log(`[Vending] Market data merged for ${productIds.length} variant(s)`);
+    setCache(marketDataCache, marketCacheKey, marketData);
   }
 
   // Build variants array with pricing for each

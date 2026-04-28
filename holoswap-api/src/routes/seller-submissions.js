@@ -225,12 +225,19 @@ async function getCardPricing(setId, cardNumber, cardName) {
   let cached = true;
 
   if (!marketData) {
-    checkRateLimit();
-    console.log(`[Seller] Fetching market data for ${productIds.length} variant(s)`);
-    marketData = await getMarketData(productIds);
-    console.log(`[Seller] Market data response:`, JSON.stringify(marketData).substring(0, 500));
-    setCache(marketDataCache, marketCacheKey, marketData);
     cached = false;
+    marketData = { data: {} };
+    for (const pid of productIds) {
+      checkRateLimit();
+      try {
+        const single = await getMarketData(pid);
+        if (single?.data) Object.assign(marketData.data, single.data);
+      } catch (err) {
+        console.error(`[Seller] Market data fetch failed for ${pid}:`, err.message);
+      }
+    }
+    console.log(`[Seller] Market data merged for ${productIds.length} variant(s)`);
+    setCache(marketDataCache, marketCacheKey, marketData);
   }
 
   const variants = [];
