@@ -383,8 +383,10 @@ async function getCardPricing(setId, cardNumber, cardName) {
     if (!pricingRecords || pricingRecords.length === 0) continue;
 
     const pricing = formatPricingData(pricingRecords, pid, cached);
+    const promo = card.promo && card.promo !== 'null' ? card.promo : null;
     variants.push({
       material: card.material || null,
+      promo,
       product_id: pid,
       market_price: pricing.marketPrice,
       currency: pricing.currency,

@@ -353,14 +353,17 @@ function analyzeBuyRecommendation(pricingData) {
 // Look up cached product_ids from DB (returns all ungraded variants for a card)
 async function findCachedProducts(pokePulseSetId, cardNumber) {
   try {
-    // Exclude graded cards: product_id format is card:set|num|material|promo|gradingCo|grade
-    // Ungraded cards end with '|null|null', graded end with e.g. '|PSA|10'
+    // product_id format: card:set|num|material|promo|gradingCo|grade
+    // Ungraded cards end with '|null|null'; graded end with e.g. '|PSA|10'.
+    // Dedupe by (material, promo) so a PC-stamp Holo and a normal Holo both come back.
     const result = await pool.query(
-      `SELECT DISTINCT ON (COALESCE(material, '')) product_id, card_name, card_number, image_url, material
+      `SELECT DISTINCT ON (COALESCE(material, ''), split_part(product_id, '|', 4))
+              product_id, card_name, card_number, image_url, material,
+              split_part(product_id, '|', 4) AS promo
        FROM pokepulse_catalogue
        WHERE set_id = $1 AND card_number = $2
          AND product_id LIKE '%|null|null'
-       ORDER BY COALESCE(material, ''), product_id`,
+       ORDER BY COALESCE(material, ''), split_part(product_id, '|', 4), product_id`,
       [pokePulseSetId, cardNumber]
     );
     if (result.rows.length > 0) {
@@ -369,11 +372,13 @@ async function findCachedProducts(pokePulseSetId, cardNumber) {
     }
     // Try with card_number starting with the number (e.g., "89" matches "89/123")
     const fuzzy = await pool.query(
-      `SELECT DISTINCT ON (COALESCE(material, '')) product_id, card_name, card_number, image_url, material
+      `SELECT DISTINCT ON (COALESCE(material, ''), split_part(product_id, '|', 4))
+              product_id, card_name, card_number, image_url, material,
+              split_part(product_id, '|', 4) AS promo
        FROM pokepulse_catalogue
        WHERE set_id = $1 AND card_number LIKE $2
          AND product_id LIKE '%|null|null'
-       ORDER BY COALESCE(material, ''), product_id`,
+       ORDER BY COALESCE(material, ''), split_part(product_id, '|', 4), product_id`,
       [pokePulseSetId, cardNumber + '%']
     );
     if (fuzzy.rows.length > 0) {
