@@ -422,14 +422,23 @@ const migrate = async () => {
   }
 
   // Backfill missing card_index.image_url from pokepulse_catalogue (for sets tcgdex doesn't host images for, e.g. mep)
+  // PokePulse stores card_number with a set prefix (e.g. 'MEP001') while card_index.local_id is unprefixed ('001'),
+  // so match on the trailing numeric portion when both sides are purely numeric.
   const imageBackfill = await pool.query(`
     UPDATE card_index ci
     SET image_url = pp.image_url
     FROM pokepulse_catalogue pp
     WHERE ci.image_url IS NULL
-      AND ci.pokepulse_set_id = pp.set_id
-      AND ci.local_id = pp.card_number
       AND pp.image_url IS NOT NULL
+      AND ci.pokepulse_set_id = pp.set_id
+      AND (
+        ci.local_id = pp.card_number
+        OR (
+          ci.local_id ~ '^[0-9]+$'
+          AND pp.card_number ~ '[0-9]+$'
+          AND ci.local_id::int = NULLIF(regexp_replace(pp.card_number, '\\D', '', 'g'), '')::int
+        )
+      )
   `);
   if (imageBackfill.rowCount > 0) {
     console.log(`\n🖼️  Backfilled image_url on ${imageBackfill.rowCount} card_index rows from pokepulse_catalogue`);
