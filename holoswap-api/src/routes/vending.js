@@ -394,15 +394,30 @@ async function getCardPricing(setId, cardNumber, cardName) {
     setCache(marketDataCache, marketCacheKey, marketData);
   }
 
-  // Build variants array with pricing for each
+  // Build variants array with pricing for each. Keep variants even when market data is empty
+  // so the UI still surfaces them (with no price) rather than silently dropping them.
   const variants = [];
   for (const card of matchingCards) {
     const pid = card.product_id;
     const pricingRecords = extractPricingRecords(marketData, pid);
-    if (!pricingRecords || pricingRecords.length === 0) continue;
+    const promo = card.promo && card.promo !== 'null' ? card.promo : null;
+
+    if (!pricingRecords || pricingRecords.length === 0) {
+      variants.push({
+        material: card.material || null,
+        promo,
+        product_id: pid,
+        market_price: null,
+        currency: 'GBP',
+        conditions: null,
+        trends: null,
+        lastSoldPrice: null,
+        lastSoldDate: null,
+      });
+      continue;
+    }
 
     const pricing = formatPricingData(pricingRecords, pid, cached);
-    const promo = card.promo && card.promo !== 'null' ? card.promo : null;
     variants.push({
       material: card.material || null,
       promo,
@@ -417,6 +432,10 @@ async function getCardPricing(setId, cardNumber, cardName) {
   }
 
   if (variants.length === 0) return null;
+
+  // Surface a priced variant as the default if any exist, so the top-level price isn't blank
+  // when the first matched variant happens to lack market data.
+  variants.sort((a, b) => (a.market_price == null) - (b.market_price == null));
 
   // Return first variant's data at top level for backwards compat, plus variants array
   const first = variants[0];
