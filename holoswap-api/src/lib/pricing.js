@@ -379,8 +379,8 @@ async function findCachedProducts(pokePulseSetId, cardNumber) {
       return result.rows;
     }
     // Try with card_number starting with the number (e.g., "89" matches "89/123") or
-    // with PokePulse's set-prefix-embedded numbers (e.g. user '31' matches 'MEP031').
-    const numericInput = parseInt(cardNumber.replace(/\D/g, ''), 10);
+    // by comparing the first numeric segment so '31' matches 'MEP031', '031/094', etc.
+    const numericInput = parseInt(cardNumber.replace(/^\D*/, ''), 10);
     const fuzzy = await pool.query(
       `SELECT DISTINCT ON (COALESCE(material, ''), split_part(product_id, '|', 4))
               product_id, card_name, card_number, image_url, material,
@@ -392,8 +392,8 @@ async function findCachedProducts(pokePulseSetId, cardNumber) {
            card_number LIKE $2
            OR (
              $3::int IS NOT NULL
-             AND card_number ~ '\\d+$'
-             AND NULLIF(regexp_replace(card_number, '.*?(\\d+)$', '\\1'), '')::int = $3::int
+             AND substring(card_number from '\\d+') IS NOT NULL
+             AND substring(card_number from '\\d+')::int = $3::int
            )
          )
        ORDER BY COALESCE(material, ''), split_part(product_id, '|', 4), product_id`,
