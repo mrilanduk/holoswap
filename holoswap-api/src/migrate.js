@@ -224,6 +224,9 @@ const migrate = async () => {
     ALTER TABLE card_index ADD COLUMN IF NOT EXISTS pokepulse_set_id VARCHAR(50);
     CREATE INDEX IF NOT EXISTS idx_card_index_pp_set_id ON card_index(pokepulse_set_id);
 
+    -- Official printed denominator (e.g. "/105"). set_total includes secret rares; this doesn't.
+    ALTER TABLE card_index ADD COLUMN IF NOT EXISTS set_official_total INTEGER;
+
     -- Prize wheel config (vendor's wheel segments)
     CREATE TABLE IF NOT EXISTS prize_wheel_config (
       id         SERIAL PRIMARY KEY,

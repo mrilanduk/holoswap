@@ -267,9 +267,8 @@ async function findCardInIndex(setId, cardNumber) {
 }
 
 // Find sets by total card count + card number (for "089/191" input with no set code)
-// The "/191" on a card means 191 regular cards — secret rares may push set_total higher.
-// We match sets where set_total is at-or-just-above the printed total, AND that contain
-// both the printed total card number and the requested card number.
+// The "/191" denominator on a card is the official printed count, stored in set_official_total.
+// set_total includes secret rares so it's unreliable for this match.
 async function findSetsByTotal(total, cardNumber) {
   const totalInt = parseInt(total, 10);
   if (isNaN(totalInt)) return [];
@@ -277,20 +276,15 @@ async function findSetsByTotal(total, cardNumber) {
     `SELECT ci.*
      FROM card_index ci
      WHERE (ci.local_id = $1 OR ci.local_id = $2)
-       AND ci.set_total BETWEEN $3 AND $4
-       AND ci.set_id IN (
-         SELECT set_id FROM card_index
-         WHERE (local_id = $5 OR local_id = $6)
-           AND set_total BETWEEN $3 AND $4
+       AND (
+         ci.set_official_total = $3
+         OR (ci.set_official_total IS NULL AND ci.set_total BETWEEN $3 AND $3 + 30)
        )
      ORDER BY ci.set_id`,
     [
       cardNumber,
       cardNumber.padStart(3, '0'),
-      totalInt,
-      totalInt + 30,
-      total,
-      total.padStart(3, '0')
+      totalInt
     ]
   );
   return result.rows;

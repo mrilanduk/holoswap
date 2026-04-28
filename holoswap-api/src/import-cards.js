@@ -136,6 +136,7 @@ async function run() {
             setData.logo ? setData.logo + '.webp' : null,
             setData.symbol ? setData.symbol + '.webp' : null,
             setData.cardCount?.total || null,
+            setData.cardCount?.official || null,
             card.variants?.normal || false,
             card.variants?.reverse || false,
             card.variants?.holo || false,
@@ -150,7 +151,7 @@ async function run() {
           );
 
           const nums = [];
-          for (let n = 0; n < 28; n++) {
+          for (let n = 0; n < 29; n++) {
             nums.push(`$${paramIdx++}`);
           }
           placeholders.push(`(${nums.join(',')})`);
@@ -172,11 +173,16 @@ async function run() {
           INSERT INTO card_index (
             id, name, local_id, category, rarity, hp, card_type, stage, evolve_from,
             description, illustrator, image_url, set_id, set_name, set_logo, set_symbol,
-            set_total, variants_normal, variants_reverse, variants_holo, variants_first_ed,
+            set_total, set_official_total, variants_normal, variants_reverse, variants_holo, variants_first_ed,
             attacks, weaknesses, resistances, retreat_cost, legal_standard, legal_expanded,
             pokepulse_set_id
           ) VALUES ${placeholders.join(',')}
-          ON CONFLICT (id) DO NOTHING
+          ON CONFLICT (id) DO UPDATE SET
+            set_total = EXCLUDED.set_total,
+            set_official_total = EXCLUDED.set_official_total,
+            set_logo = EXCLUDED.set_logo,
+            set_symbol = EXCLUDED.set_symbol,
+            set_name = EXCLUDED.set_name
         `, values);
       }
 
