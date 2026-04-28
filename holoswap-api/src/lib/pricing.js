@@ -135,7 +135,15 @@ async function getMarketData(productIdOrIds) {
 function matchCardNumber(catalogueNum, searchNum) {
   const catalogueBase = catalogueNum.split('/')[0].replace(/^0+/, '') || '0';
   const searchBase = searchNum.replace(/^0+/, '') || '0';
-  return catalogueBase === searchBase;
+  if (catalogueBase === searchBase) return true;
+  // PokePulse sometimes embeds the set prefix in the number (e.g. 'MEP031' vs the
+  // user's '31'). Compare the trailing numeric segments when both are pure digits.
+  const catalogueDigits = catalogueBase.match(/\d+$/)?.[0];
+  const searchDigits = searchBase.match(/\d+$/)?.[0];
+  if (catalogueDigits && searchDigits && parseInt(catalogueDigits, 10) === parseInt(searchDigits, 10)) {
+    return true;
+  }
+  return false;
 }
 
 // Return ALL matching variants for a card number (excludeGraded already handled by API)
@@ -370,16 +378,26 @@ async function findCachedProducts(pokePulseSetId, cardNumber) {
       console.log(`[PP Cache] HIT: ${pokePulseSetId} #${cardNumber} → ${result.rows.length} variant(s)`);
       return result.rows;
     }
-    // Try with card_number starting with the number (e.g., "89" matches "89/123")
+    // Try with card_number starting with the number (e.g., "89" matches "89/123") or
+    // with PokePulse's set-prefix-embedded numbers (e.g. user '31' matches 'MEP031').
+    const numericInput = parseInt(cardNumber.replace(/\D/g, ''), 10);
     const fuzzy = await pool.query(
       `SELECT DISTINCT ON (COALESCE(material, ''), split_part(product_id, '|', 4))
               product_id, card_name, card_number, image_url, material,
               split_part(product_id, '|', 4) AS promo
        FROM pokepulse_catalogue
-       WHERE set_id = $1 AND card_number LIKE $2
+       WHERE set_id = $1
          AND product_id LIKE '%|null|null'
+         AND (
+           card_number LIKE $2
+           OR (
+             $3::int IS NOT NULL
+             AND card_number ~ '\\d+$'
+             AND NULLIF(regexp_replace(card_number, '.*?(\\d+)$', '\\1'), '')::int = $3::int
+           )
+         )
        ORDER BY COALESCE(material, ''), split_part(product_id, '|', 4), product_id`,
-      [pokePulseSetId, cardNumber + '%']
+      [pokePulseSetId, cardNumber + '%', isNaN(numericInput) ? null : numericInput]
     );
     if (fuzzy.rows.length > 0) {
       console.log(`[PP Cache] FUZZY HIT: ${pokePulseSetId} #${cardNumber} → ${fuzzy.rows.length} variant(s)`);
