@@ -163,11 +163,17 @@ async function searchCardsByName(query) {
 }
 
 async function getCardPricing(setId, cardNumber, cardName) {
+  // Look up pokepulse_set_id for the specific card first (subsets like Radiant Collection
+  // can map differently from the parent set). Fall back to any card in the set.
   const ppRow = await pool.query(
-    'SELECT pokepulse_set_id FROM card_index WHERE set_id = $1 AND pokepulse_set_id IS NOT NULL LIMIT 1',
-    [setId]
+    `SELECT pokepulse_set_id FROM card_index
+     WHERE set_id = $1 AND UPPER(local_id) = UPPER($2) AND pokepulse_set_id IS NOT NULL
+     LIMIT 1`,
+    [setId, cardNumber]
   );
-  const pokePulseSetId = ppRow.rows[0]?.pokepulse_set_id || convertSetIdToPokePulse(setId);
+  const pokePulseSetId = ppRow.rows[0]?.pokepulse_set_id
+    || (await pool.query('SELECT pokepulse_set_id FROM card_index WHERE set_id = $1 AND pokepulse_set_id IS NOT NULL LIMIT 1', [setId])).rows[0]?.pokepulse_set_id
+    || convertSetIdToPokePulse(setId);
   console.log(`[Seller] setId: ${setId} → pokepulse: ${pokePulseSetId}, card: ${cardName} #${cardNumber}`);
 
   let matchingCards = [];

@@ -21,9 +21,17 @@ router.get('/check', auth, async (req, res) => {
       });
     }
 
-    // Read pokepulse_set_id from card_index (no runtime conversion needed)
-    const ppRow = await pool.query('SELECT pokepulse_set_id FROM card_index WHERE set_id = $1 AND pokepulse_set_id IS NOT NULL LIMIT 1', [setId]);
-    const pokePulseSetId = ppRow.rows[0]?.pokepulse_set_id || convertSetIdToPokePulse(setId);
+    // Read pokepulse_set_id from the SPECIFIC card row first; fall back to any card in the set.
+    // Subsets like Radiant Collection map to a different pokepulse_set_id from the parent set.
+    const ppRow = await pool.query(
+      `SELECT pokepulse_set_id FROM card_index
+       WHERE set_id = $1 AND UPPER(local_id) = UPPER($2) AND pokepulse_set_id IS NOT NULL
+       LIMIT 1`,
+      [setId, number]
+    );
+    const pokePulseSetId = ppRow.rows[0]?.pokepulse_set_id
+      || (await pool.query('SELECT pokepulse_set_id FROM card_index WHERE set_id = $1 AND pokepulse_set_id IS NOT NULL LIMIT 1', [setId])).rows[0]?.pokepulse_set_id
+      || convertSetIdToPokePulse(setId);
     console.log(`setId: ${setId} → pokepulse: ${pokePulseSetId}`);
 
     // Check catalogue cache
