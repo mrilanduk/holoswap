@@ -136,7 +136,7 @@ const SET_CODE_MAP = {
   'A1': 'A1', 'A1A': 'A1a', 'A2': 'A2', 'A2A': 'A2a', 'A3': 'A3',
   'P-A': 'P-A',
   // Mega evolution sets
-  'MEG': 'me01', 'PFL': 'me02', 'MEP': 'MEP',
+  'MEG': 'me01', 'PFL': 'me02', 'MEP': 'mep',
   // Sword & Shield era
   'SSH': 'swsh1', 'RCL': 'swsh2', 'DAA': 'swsh3', 'CPA': 'swsh3.5', 'VIV': 'swsh4',
   'SHF': 'swsh4.5', 'BST': 'swsh5', 'CRE': 'swsh6', 'EVS': 'swsh7', 'CEL': 'swsh7.5',
