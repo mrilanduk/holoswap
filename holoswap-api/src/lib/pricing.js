@@ -359,20 +359,35 @@ function analyzeBuyRecommendation(pricingData) {
 // ============================================================
 
 // Look up cached product_ids from DB (returns all ungraded variants for a card)
+// Same-card siblings on PokePulse: 'bsu' (Base Set Unlimited) and its 'bss' (Shadowless),
+// 'bs1s' (1st Edition Shadowless) printings live under different PokePulse set_ids but are
+// all the same card from the tcgdex/card_index perspective. Looking up any of these returns
+// variants from all of them so users see every printing in one chip selector.
+const SIBLING_PP_SETS = {
+  'bsu':  ['bss', 'bs1s'],
+  'bss':  ['bsu', 'bs1s'],
+  'bs1s': ['bsu', 'bss'],
+};
+
+function expandSetIds(pokePulseSetId) {
+  return [pokePulseSetId, ...(SIBLING_PP_SETS[pokePulseSetId] || [])];
+}
+
 async function findCachedProducts(pokePulseSetId, cardNumber) {
   try {
+    const setIds = expandSetIds(pokePulseSetId);
     // product_id format: card:set|num|material|promo|gradingCo|grade
     // Ungraded cards end with '|null|null'; graded end with e.g. '|PSA|10'.
-    // Dedupe by (material, promo) so a PC-stamp Holo and a normal Holo both come back.
+    // Dedupe by (set_id, material, promo) so siblings keep their distinct printings.
     const result = await pool.query(
-      `SELECT DISTINCT ON (COALESCE(material, ''), split_part(product_id, '|', 4))
-              product_id, card_name, card_number, image_url, material,
+      `SELECT DISTINCT ON (set_id, COALESCE(material, ''), split_part(product_id, '|', 4))
+              product_id, set_id, card_name, card_number, image_url, material,
               split_part(product_id, '|', 4) AS promo
        FROM pokepulse_catalogue
-       WHERE set_id = $1 AND card_number = $2
+       WHERE set_id = ANY($1::text[]) AND card_number = $2
          AND product_id LIKE '%|null|null'
-       ORDER BY COALESCE(material, ''), split_part(product_id, '|', 4), product_id`,
-      [pokePulseSetId, cardNumber]
+       ORDER BY set_id, COALESCE(material, ''), split_part(product_id, '|', 4), product_id`,
+      [setIds, cardNumber]
     );
     if (result.rows.length > 0) {
       console.log(`[PP Cache] HIT: ${pokePulseSetId} #${cardNumber} → ${result.rows.length} variant(s)`);
@@ -382,11 +397,11 @@ async function findCachedProducts(pokePulseSetId, cardNumber) {
     // the first numeric segment so '31' matches 'MEP031', '031/094', etc.
     const numericInput = parseInt(cardNumber.replace(/^\D*/, ''), 10);
     const fuzzy = await pool.query(
-      `SELECT DISTINCT ON (COALESCE(material, ''), split_part(product_id, '|', 4))
-              product_id, card_name, card_number, image_url, material,
+      `SELECT DISTINCT ON (set_id, COALESCE(material, ''), split_part(product_id, '|', 4))
+              product_id, set_id, card_name, card_number, image_url, material,
               split_part(product_id, '|', 4) AS promo
        FROM pokepulse_catalogue
-       WHERE set_id = $1
+       WHERE set_id = ANY($1::text[])
          AND product_id LIKE '%|null|null'
          AND (
            card_number LIKE $2
@@ -396,8 +411,8 @@ async function findCachedProducts(pokePulseSetId, cardNumber) {
              AND substring(card_number from '\\d+')::int = $3::int
            )
          )
-       ORDER BY COALESCE(material, ''), split_part(product_id, '|', 4), product_id`,
-      [pokePulseSetId, cardNumber + '/%', isNaN(numericInput) ? null : numericInput]
+       ORDER BY set_id, COALESCE(material, ''), split_part(product_id, '|', 4), product_id`,
+      [setIds, cardNumber + '/%', isNaN(numericInput) ? null : numericInput]
     );
     if (fuzzy.rows.length > 0) {
       console.log(`[PP Cache] FUZZY HIT: ${pokePulseSetId} #${cardNumber} → ${fuzzy.rows.length} variant(s)`);
