@@ -205,12 +205,23 @@ function parseCardInput(input) {
     };
   }
 
-  // Pattern: "SV107" or "TG15" (prefixed card number, no set code)
+  // Pattern: "MEP031" / "SVI199" (set code + number, no space) OR "SV107" / "TG15" (prefixed card number)
   const prefixedNum = trimmed.match(/^([A-Za-z]+)\s*(\d+)$/);
   if (prefixedNum) {
+    const prefix = prefixedNum[1].toUpperCase();
+    const num = prefixedNum[2];
+    // If the prefix is a known set code, treat as "<SET> <NUMBER>"; otherwise treat
+    // the whole thing as a card-internal prefixed number (SV107, TG15, RC28, etc.)
+    if (SET_CODE_MAP[prefix]) {
+      return {
+        type: 'set_number',
+        setCode: prefix,
+        cardNumber: num.replace(/^0+/, '') || '0',
+      };
+    }
     return {
       type: 'prefixed_number',
-      cardNumber: prefixedNum[1].toUpperCase() + prefixedNum[2],
+      cardNumber: prefix + num,
     };
   }
 
