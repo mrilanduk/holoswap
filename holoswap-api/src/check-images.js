@@ -2,37 +2,22 @@ const pool = require('./db');
 
 (async () => {
   try {
-    // Find all RC-style local_ids in card_index
-    const rcRows = await pool.query(
-      `SELECT set_id, set_name, local_id, name
-       FROM card_index
-       WHERE local_id ILIKE '%rc%' OR local_id ILIKE 'rc%' OR name ILIKE 'flareon%'
-       ORDER BY set_id, local_id
-       LIMIT 30`
+    const r1 = await pool.query(
+      "SELECT product_id, set_id, card_number, card_name FROM pokepulse_catalogue WHERE card_name ILIKE '%flareon%' AND card_number ILIKE '%28%' LIMIT 10"
     );
-    console.log('RC-ish local_ids / Flareon rows:');
-    console.log(JSON.stringify(rcRows.rows, null, 2));
+    console.log('Flareon-ish rows in pokepulse_catalogue:');
+    console.log(JSON.stringify(r1.rows, null, 2));
 
-    // What does Generations look like specifically?
-    const g1 = await pool.query(
-      `SELECT local_id, name, set_id
-       FROM card_index
-       WHERE set_id = 'g1'
-       ORDER BY LPAD(REGEXP_REPLACE(local_id, '\\D', '', 'g'), 5, '0'), local_id
-       LIMIT 5 OFFSET 80`
+    const r2 = await pool.query(
+      "SELECT DISTINCT set_id FROM pokepulse_catalogue WHERE card_number ILIKE 'rc%' ORDER BY set_id LIMIT 20"
     );
-    console.log('\nGenerations rows 80-85 (where RC cards should start):');
-    console.log(JSON.stringify(g1.rows, null, 2));
+    console.log('\nDistinct PokePulse set_ids that contain RC-prefixed cards:');
+    console.log(JSON.stringify(r2.rows, null, 2));
 
-    // Direct search for RC28 using the same query pattern as vending.js prefixed_number
-    const lookup = await pool.query(
-      `SELECT * FROM card_index WHERE UPPER(local_id) = UPPER($1)
-       AND set_id IN (SELECT set_id FROM card_index WHERE UPPER(local_id) = UPPER($2))
-       ORDER BY set_id`,
-      ['RC28', 'RC32']
+    const r3 = await pool.query(
+      "SELECT COUNT(*) AS n FROM pokepulse_catalogue WHERE set_id = 'g1'"
     );
-    console.log('\nVending lookup for RC28/RC32:', lookup.rows.length, 'rows');
-    console.log(JSON.stringify(lookup.rows.map(r => ({set_id: r.set_id, local_id: r.local_id, name: r.name})), null, 2));
+    console.log('\nRows in pokepulse_catalogue with set_id=g1:', r3.rows[0].n);
   } catch (e) {
     console.error('ERROR:', e.message);
   } finally {
