@@ -427,6 +427,42 @@ const migrate = async () => {
     console.log(`\n🔄 Fixed pokepulse_set_id overrides for ${overrideFix.rowCount} rows`);
   }
 
+  // Insert card_index rows for cards PokePulse has but tcgdex doesn't (e.g. mep #029-036).
+  // Only handles plain set-prefix + numeric ids ('MEP031'); structured ids like 'RC28/RC32' are skipped.
+  const cardBackfill = await pool.query(`
+    INSERT INTO card_index (
+      id, name, local_id, set_id, set_name, set_total, set_official_total,
+      set_logo, set_symbol, image_url, pokepulse_set_id, category
+    )
+    SELECT DISTINCT ON (parent.set_id, lpad(regexp_replace(pp.card_number, '\\D', '', 'g'), 3, '0'))
+      parent.set_id || '-' || lpad(regexp_replace(pp.card_number, '\\D', '', 'g'), 3, '0') AS id,
+      pp.card_name,
+      lpad(regexp_replace(pp.card_number, '\\D', '', 'g'), 3, '0') AS local_id,
+      parent.set_id,
+      parent.set_name,
+      parent.set_total,
+      parent.set_official_total,
+      parent.set_logo,
+      parent.set_symbol,
+      pp.image_url,
+      parent.pokepulse_set_id,
+      'Pokemon' AS category
+    FROM pokepulse_catalogue pp
+    JOIN (
+      SELECT DISTINCT ON (pokepulse_set_id)
+        pokepulse_set_id, set_id, set_name, set_total, set_official_total, set_logo, set_symbol
+      FROM card_index
+      WHERE pokepulse_set_id IS NOT NULL
+      ORDER BY pokepulse_set_id, id
+    ) parent ON parent.pokepulse_set_id = pp.set_id
+    WHERE pp.material IS NULL
+      AND pp.card_number ~ '^[A-Za-z]+[0-9]+$'
+    ON CONFLICT (id) DO NOTHING
+  `);
+  if (cardBackfill.rowCount > 0) {
+    console.log(`\n➕ Inserted ${cardBackfill.rowCount} card_index rows from pokepulse_catalogue (cards missing from tcgdex)`);
+  }
+
   // Backfill missing card_index.image_url from pokepulse_catalogue (for sets tcgdex doesn't host images for, e.g. mep)
   // PokePulse stores card_number with a set prefix (e.g. 'MEP001') while card_index.local_id is unprefixed ('001'),
   // so match on the trailing numeric portion when both sides are purely numeric.
